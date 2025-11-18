@@ -15,81 +15,35 @@ https://github.com/bnplab/phastimate
 This version is based on MATLAB adaptation of Phastimate by Joonas Laurinoja at Aalto University.
 """
 
+import csv
+import subprocess
 from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
-from scipy.signal import filtfilt, hilbert, firwin
+from scipy.signal import filtfilt, hilbert
+from scipy.io import loadmat
 from spectrum import aryule
 
-def generate_bandpass_filter_coefficients(filter_order: int = 128, 
-                                        low_cutoff: float = 8.0, 
-                                        high_cutoff: float = 13.0, 
-                                        sampling_rate: float = 1000.0) -> np.ndarray:
-    """
-    Generate bandpass filter coefficients using scipy.signal.firwin.
-    
-    This function creates a FIR bandpass filter with specified parameters,
-    matching the MATLAB designfilt approach used in Zrenner2018.
-    
-    Args:
-        filter_order: Filter order (number of coefficients will be filter_order + 1)
-        low_cutoff: Low cutoff frequency in Hz
-        high_cutoff: High cutoff frequency in Hz  
-        sampling_rate: Sampling rate in Hz
-        
-    Returns:
-        Array of filter coefficients (length = filter_order + 1)
-    """
-    # Convert cutoff frequencies to normalized frequencies (0 to 1, where 1 is Nyquist)
-    nyquist = sampling_rate / 2
-    low_normalized = low_cutoff / nyquist
-    high_normalized = high_cutoff / nyquist
-    
-    # Generate bandpass filter coefficients using Hamming window (default)
-    # firwin creates a filter with numtaps coefficients (filter_order + 1)
-    coefficients = firwin(filter_order + 1, [low_normalized, high_normalized], 
-                         pass_zero=False, window='hamming')
-    
-    return coefficients
 
 
-# Bandpass filter coefficients - Updated to filter order 128 (129 coefficients) to match Zrenner2018
-# Generated using 8-13 Hz bandpass filter at 1000 Hz sampling rate
-#BANDPASS_FILTER_COEFFICIENTS = generate_bandpass_filter_coefficients()
 
-BANDPASS_FILTER_COEFFICIENTS = np.array([
-   -0.00093978, -0.00106713, -0.00120894, -0.00136913, -0.00155121, -0.00175812,
-   -0.00199218, -0.00225505, -0.00254761, -0.00286997, -0.00322139, -0.00360027,
-   -0.00400417, -0.00442977, -0.00487293, -0.00532868, -0.00579132, -0.00625445,
-   -0.00671104, -0.00715354, -0.00757396, -0.00796399, -0.00831509, -0.00861866,
-   -0.00886612, -0.00904906, -0.00915936, -0.00918935, -0.0091319,  -0.00898058,
-   -0.00872973, -0.00837463, -0.00791155, -0.00733785, -0.00665208, -0.00585399,
-   -0.00494463, -0.00392634, -0.00280279, -0.00157895, -0.00026108,  0.00114329,
-    0.00262547,  0.00417561,  0.00578287,  0.00743544,  0.00912075,  0.0108255,
-    0.01253587,  0.01423766,  0.01591642,  0.01755764,  0.01914686,  0.02066993,
-    0.02211308,  0.02346311,  0.02470759,  0.02583492,  0.02683455,  0.02769705,
-    0.02841423,  0.02897928,  0.0293868,   0.02963289,  0.02971518,  0.02963289,
-    0.0293868,   0.02897928,  0.02841423,  0.02769705,  0.02683455,  0.02583492,
-    0.02470759,  0.02346311,  0.02211308,  0.02066993,  0.01914686,  0.01755764,
-    0.01591642,  0.01423766,  0.01253587,  0.0108255,   0.00912075,  0.00743544,
-    0.00578287,  0.00417561,  0.00262547,  0.00114329, -0.00026108, -0.00157895,
-   -0.00280279, -0.00392634, -0.00494463, -0.00585399, -0.00665208, -0.00733785,
-   -0.00791155, -0.00837463, -0.00872973, -0.00898058, -0.0091319,  -0.00918935,
-   -0.00915936, -0.00904906, -0.00886612, -0.00861866, -0.00831509, -0.00796399,
-   -0.00757396, -0.00715354, -0.00671104, -0.00625445, -0.00579132, -0.00532868,
-   -0.00487293, -0.00442977, -0.00400417, -0.00360027, -0.00322139, -0.00286997,
-   -0.00254761, -0.00225505, -0.00199218, -0.00175812, -0.00155121, -0.00136913,
-   -0.00120894, -0.00106713, -0.00093978
-])
+SUBJECT_ID = 'Sub-01' # increase iteravely for each subject
+
+
+
+# Load MATLAB coefficients directly as numpy array
+mat_data = loadmat('filter_coeffs.mat')
+BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coeffs'].flatten())
 
 
 # EEG channel indices for C3 referencing
-C3_CHANNEL_INDEX = 4
-REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3
+C3_CHANNEL_INDEX = 4 # add 1 to convert to MATLAB (1-based)
+REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again 0-based
 REFERENCE_WEIGHT = 0.25
 
 # Phase estimation constants
-TARGET_PHASE_RADIANS = np.pi  # Target waveform trough
-DEFAULT_PHASE_TOLERANCE = TARGET_PHASE_RADIANS / 40
+TARGET_PHASE_RADIANS = [np.pi, 0, 'random']  # Three phase targets: Trough (π), Peak (0), Random (from CSV)
+RANDOM_PHASES_CSV_PATH = 'data/random_phases.csv'  # Path to CSV file with random phase targets
+DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases
 DEFAULT_HILBERT_WINDOW_SIZE = 64  # Note: MATLAB Phastimate implementation uses 128 for general processing,
 
 DEFAULT_EDGE_SAMPLES = 32  
@@ -98,9 +52,15 @@ DEFAULT_AR_MODEL_ORDER = 25  # # good balance between under- and overfitting
 DEFAULT_DOWNSAMPLE_RATIO = 10
 
 # Processing timing constants
-DEFAULT_PROCESSING_INTERVAL_SECONDS = 1.0
+DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.1
+
 # DEFAULT_BUFFER_SIZE_SECONDS = 1.0  # Old value - not matching Zrenner2018
 DEFAULT_BUFFER_SIZE_SECONDS = 0.5  # Updated to match Zrenner2018 parameters (500ms window)
+TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in seconds
+
+# Set the Number of Trials per phase
+N_TRIALS_PER_PHASE = 100  # 100 trials per phase
+N_PHASES = 3  # Number of phase targets (π, 0, random)
 
 class Decider:
     """
@@ -119,6 +79,8 @@ class Decider:
             num_emg_channels: Number of EMG channels (unused but kept for interface compatibility)
             sampling_frequency: Sampling frequency in Hz
         """
+
+        self.subject_id = SUBJECT_ID
         self.sampling_frequency = sampling_frequency
 
         # Phastimate algorithm parameters
@@ -134,13 +96,17 @@ class Decider:
         # Convert timing parameters to samples
         self.processing_interval_samples = int(self.processing_interval_seconds * sampling_frequency)
         self.buffer_size_samples = int(self.buffer_size_seconds * sampling_frequency)
+        print(f"Buffer size in samples: {self.buffer_size_samples}")
+
 
         # Filter coefficients
         self.bandpass_filter_coefficients = BANDPASS_FILTER_COEFFICIENTS
 
         # Phase targeting parameters
-        self.target_phase_radians = TARGET_PHASE_RADIANS
+        self.target_phases = TARGET_PHASE_RADIANS  # List of all phase targets
         self.phase_tolerance = DEFAULT_PHASE_TOLERANCE
+        
+        
         
         # Maximum number of future samples to consider for trigger scheduling
         self.max_future_samples = int(self.edge_samples / 2)
@@ -148,8 +114,41 @@ class Decider:
         # Leave empty when mTMS device is not used
         self.targets = []
         
+
+        # Initialize logs - single structure for all phases
+        self.timestamp_log = []
+        self.triggertimes_log = []
+        self.phases_log = []  # Track which phase was targeted
+
+        # Number of Trials per phase
+        self.n_trials_per_phase = N_TRIALS_PER_PHASE
+        self.n_phases = N_PHASES
         # Number of warm-up rounds to prevent first-call delays (see README.md for details)
         self.warm_up_rounds = 2
+
+        # Phase tracking
+        self.current_phase_index = 0  # Track which phase we're currently on
+        self.current_phase_trials = 0  # Track trials completed in current phase
+        
+        # Trigger cooldown tracking (2 seconds minimum between triggers)
+        self.last_trigger_time = None
+        self.trigger_cooldown_seconds = TRIGGER_COOLDOWN_SECONDS
+        
+        # Load random phases from CSV file
+        self.random_phases = self._load_random_phases(RANDOM_PHASES_CSV_PATH)
+        self.random_phase_index = 0  # Track current position in random phases list
+
+
+        # Set initial target phase (handle random case)
+        if self.target_phases[0] == 'random':
+            self.target_phase_radians = self.random_phases[self.random_phase_index]
+        else:
+            self.target_phase_radians = self.target_phases[0]
+        
+        # Total trials across all phases
+        total_trials = self.n_trials_per_phase * self.n_phases
+        self.trials_left = total_trials
+
 
     def get_configuration(self) -> Dict[str, Union[int, bool, List]]:
         """
@@ -158,6 +157,15 @@ class Decider:
         Returns:
             Dictionary containing processing configuration parameters
         """
+        # Call MATLAB script on remote Windows PC
+        try:
+            subprocess.run([
+                'ssh', 'BNP Brown@192.168.1.100',  # Replace with actual IP
+                'matlab.exe', '-batch', '"run(\'C:\\path\\to\\script.m\'); exit;"'
+            ], capture_output=True, timeout=30)
+        except Exception as e:
+            print(f"Warning: Remote MATLAB call failed: {e}")
+        
         return {
             'processing_interval_in_samples': self.processing_interval_samples,
             'process_on_trigger': False,
@@ -166,9 +174,49 @@ class Decider:
             'sensory_stimuli': [],
         }
 
+    def _load_random_phases(self, csv_path: str) -> np.ndarray:
+        """
+        Load random phase targets from a CSV file.
+        
+        Args:
+            csv_path: Path to the CSV file containing random phase values (in radians)
+            
+        Returns:
+            Array of random phase values
+        """
+        try:
+            with open(csv_path, 'r') as f:
+                reader = csv.reader(f)
+                next(reader, None)  # Skip header if present
+                phases = [float(row[0]) for row in reader]
+            
+            if not phases:
+                print(f"Warning: No phases found in {csv_path}. Using default random generation.")
+                # Generate default random phases if file is empty
+                return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
+            
+            phases_array = np.array(phases)
+            print(f"Loaded {len(phases_array)} random phase targets from {csv_path}")
+            
+            # Ensure we have enough phases for all trials
+            required_phases = self.n_trials_per_phase
+            if len(phases_array) < required_phases:
+                print(f"Warning: CSV has {len(phases_array)} phases but need {required_phases}. Repeating phases.")
+                # Repeat phases to fill required trials
+                phases_array = np.tile(phases_array, int(np.ceil(required_phases / len(phases_array))))[:required_phases]
+            
+            return phases_array
+            
+        except FileNotFoundError:
+            print(f"Warning: Random phases CSV file not found at {csv_path}. Generating random phases.")
+            return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
+        except Exception as e:
+            print(f"Error loading random phases from CSV: {e}. Generating random phases.")
+            return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
+
     def process(self, current_time: float, timestamps: np.ndarray, valid_samples: np.ndarray, 
                 eeg_buffer: np.ndarray, emg_buffer: np.ndarray, current_sample_index: int, 
-                ready_for_trial: bool, is_trigger: bool, is_event: bool, event_type: str) -> Optional[Dict[str, float]]:
+                ready_for_trial: bool, is_trigger: bool, is_event: bool, event_type: str, is_coil_at_target: bool) -> Optional[Dict[str, float]]:
         """
         Process the EEG data to estimate phase and schedule a trigger.
         
@@ -187,6 +235,58 @@ class Decider:
         Returns:
             Dictionary with 'timed_trigger' key and execution time, or None if no trigger scheduled
         """
+        # Check if we need to advance to next phase
+        if self.current_phase_trials >= self.n_trials_per_phase:
+            self.current_phase_index += 1
+            self.current_phase_trials = 0
+            
+            if self.current_phase_index >= self.n_phases:
+                # All phases completed
+                print("\n=== All phases completed! ===")
+                self._save_logs(self.subject_id)
+
+                # Stop the session using ROS 2 service
+                print("\n---------------------------- Attempting to stop session via ROS service... ----------------------------\n")
+                try:
+                    result = subprocess.run(
+                        ["ros2", "service", "call", "/system/session/stop", "system_interfaces/srv/StopSession"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        print("Session stopped successfully!")
+                    else:
+                        print(f"Failed to stop session: {result.stderr}")
+                except Exception as e:
+                    print(f"Error stopping session: {e}")
+                return None
+            
+            # Update target phase for new phase
+            phase_names = ["Trough (π)", "Peak (0)", "Random (from CSV)"]
+            print(f"\n=== Starting Phase {self.current_phase_index + 1}: {phase_names[self.current_phase_index]} ===")
+            
+            # Set target phase (handle random case)
+            if self.target_phases[self.current_phase_index] == 'random':
+                # For random phase, reset the index when starting random phase block
+                self.random_phase_index = 0
+                self.target_phase_radians = self.random_phases[self.random_phase_index]
+            else:
+                self.target_phase_radians = self.target_phases[self.current_phase_index]
+        
+        # For random phase, use the next value from the loaded CSV
+        if self.target_phases[self.current_phase_index] == 'random':
+            self.target_phase_radians = self.random_phases[self.random_phase_index]
+            self.random_phase_index += 1
+            print(f"Random phase target from CSV: {self.target_phase_radians:.4f} rad ({np.degrees(self.target_phase_radians):.2f}°)")
+        
+        # Check trigger cooldown - skip trial attempts during cooldown
+        if self.last_trigger_time is not None:
+            time_since_last_trigger = current_time - self.last_trigger_time
+            if time_since_last_trigger < self.trigger_cooldown_seconds:
+                # Don't even attempt processing during cooldown period
+                return None
+        
         # Early returns for invalid states
         if not ready_for_trial or not np.all(valid_samples):
             return None
@@ -207,6 +307,30 @@ class Decider:
         # Find optimal trigger timing
         trigger_timing = self._find_optimal_trigger_timing(estimated_phases, current_time)
         
+        # Check trigger cooldown - prevent triggers within 2 seconds of last trigger
+        if trigger_timing is not None and self.last_trigger_time is not None:
+            time_between_triggers = trigger_timing['timed_trigger'] - self.last_trigger_time
+            if time_between_triggers < self.trigger_cooldown_seconds:
+                print(f"Cooldown violation: {time_between_triggers:.3f}s < {self.trigger_cooldown_seconds:.1f}s - trigger rejected")
+                trigger_timing = None
+        
+        # Update last trigger time if a trigger was scheduled
+        if trigger_timing is not None:
+            self.last_trigger_time = trigger_timing['timed_trigger']  # Use actual trigger execution time
+
+        # log timestamp, trigger time, and phase
+        self.timestamp_log.append(current_time)
+        self.triggertimes_log.append(trigger_timing)
+        self.phases_log.append(self.target_phase_radians)
+        
+        # Update counters
+        self.current_phase_trials += 1
+        self.trials_left -= 1
+        
+        phase_names = ["Trough (π)", "Peak (0)", "Random (from CSV)"]
+        print(f"Phase {self.current_phase_index + 1} - Trial {self.current_phase_trials} "
+              f"(global: {self.n_trials_per_phase * self.n_phases - self.trials_left + 1})")
+
         return trigger_timing
 
     def _extract_c3_referenced_data(self, eeg_buffer: np.ndarray) -> Optional[np.ndarray]:
@@ -436,3 +560,37 @@ class Decider:
         amplitudes = np.abs(analytic_signal)
 
         return phases, amplitudes
+
+    def _save_logs(self, filename_prefix: str, path: str = './data') -> None:
+        """
+        Save timestamp, trigger time, and phase logs to files.
+        
+        Args:
+            filename_prefix: Prefix for the log filenames
+            path: Directory path to save the log files
+        """
+        # Save combined log with all information
+        with open(f'{path}/{filename_prefix}_trigger_data.csv', 'w', newline='') as combined_file:
+            writer = csv.writer(combined_file)
+            writer.writerow(['Timestamp', 'TriggerTime', 'Phase'])
+            for ts, tt, phase in zip(self.timestamp_log, self.triggertimes_log, self.phases_log):
+                writer.writerow([ts, tt, phase])
+        
+        # Also save individual files for backward compatibility
+        with open(f'{path}/{filename_prefix}_timestamps.csv', 'w', newline='') as ts_file:
+            writer = csv.writer(ts_file)
+            writer.writerow(['Timestamp'])
+            for ts in self.timestamp_log:
+                writer.writerow([ts])
+        with open(f'{path}/{filename_prefix}_triggertimes.csv', 'w', newline='') as tt_file:
+            writer = csv.writer(tt_file)
+            writer.writerow(['TriggerTime'])
+            for tt in self.triggertimes_log:
+                writer.writerow([tt])
+        with open(f'{path}/{filename_prefix}_phases.csv', 'w', newline='') as phase_file:
+            writer = csv.writer(phase_file)
+            writer.writerow(['Phase'])
+            for phase in self.phases_log:
+                writer.writerow([phase])
+
+        print(f'Logs saved for subject {filename_prefix} in {path}')

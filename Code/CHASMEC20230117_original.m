@@ -1,6 +1,6 @@
 % 2022-10-26 CHASMEC with bossdevice v2021a
 
- cd "" % <-- to be set
+ cd C:\Users\bnp-admin\Desktop\Projects\CHASMEC
  delete(instrfindall) % use this commmand in begiinning
 
 
@@ -8,8 +8,10 @@ if (~exist('stimulators') | isempty('stimulators'))
     try
         stimulators = [];
         stimulators.left = magventure('COM3');
+        stimulators.right = magventure('COM4');
         
         stimulators.left.connect();
+        stimulators.right.connect();
 %         stimulators.right.setWaveform('Monophasic','Normal');
     
     catch
@@ -37,8 +39,8 @@ save_flag = 1;
 record = [];
 
 % ---------- below set by user ----------
-subject_number = 1; %<--- SET
-session_number = 1; %<--- SET
+subject_number =47; %<--- SET
+session_number = 2; %<--- SET
 
 %%  save the reward function under this session 
 % ---------- above set by user ----------
@@ -48,13 +50,13 @@ session_number = 1; %<--- SET
 %           R4  Reward = 0.8.*(mean(MEP_P)/1000)+0.2.*(mean(this.MEPS_all)/1000)-1;
 %           R5  Reward = 0.8*(mean(MEP_P)/1000)+0.2*(mean(this.MEP_S)/1000)-1;
 %           R6  Reward = 0.8*((mean(MEP_P)-1.5*mean(this.MEPS_all_paired))/1000)+0.2*(mean(temp_single_MEP)-mean(this.MEPS_all))/1000;
-%           R7  Reward = (mean(MEP_P)-1.5*mean(this.MEPS_all_paired))/1000
+%           R7  Reward = (mean(MEP_P)-1.5*mean(this.save(fullfile(subject_folder, 'trigger_times.mat'), 'trigger_timestamps');MEPS_all_paired))/1000
 %           R8  Reward = (0.7*mean(this.MEPS_all_paired)-(mean(MEP_P))/1000
 %           R9  Random
 
 record.condition = 'R7'; % 
 record.IsExperiment = 'Large experiment trials'; % 
-record.pusle='No Pulses given';
+record.pusle='2 pair per step , only 2 single after 4steps';
 record.emg = [];
 record.seq='Enhanced_';% reduce, random , we need 2 enhance and 1 reduce and 1 random session 
 %% make folder for all matlab data under this subject 
@@ -150,6 +152,8 @@ SMA_amplitude=70; % SET
 
 % Ready stimulators
 bd.configure_time_port_marker([0 3 2; 0.006 1 1]); % CS TS % 27.04.22 changed the markers from 0,0 to 2,1
+stimulators.right.arm;
+stimulators.right.setAmplitude(SMA_amplitude);
 stimulators.left.arm;
 stimulators.left.setAmplitude(M1_amplitude);
     
@@ -221,6 +225,8 @@ trials_paired = 10;
 
 % Ready stimulators
 bd.configure_time_port_marker([0 3 2; 0.006 1 1]); % CS TS % 27.04.22 changed the markers from 0,0 to 2,1
+    stimulators.right.arm;
+    stimulators.right.setAmplitude(SMA_amplitude);
     stimulators.left.arm;
     stimulators.left.setAmplitude(M1_amplitude);
 
@@ -370,7 +376,7 @@ oriMEP=MEP_s;
 
 addpath('BOSS_ML');
 
-%env = SelectPhaseBossEnvBugCatch(bd,stimulators.left,sc,record,save_flag);
+%env = SelectPhaseBossEnvBugCatch(bd,stimulators.right,stimulators.left,sc,record,save_flag);
 %env = SelectPhaseBossEnv(bd,stimulators.right,stimulators.left,sc,record,save_flag);
 env = SelectPhaseBossEnv_MainlyPaired(bd,stimulators.right,stimulators.left,sc,record,save_flag,MEP_s,MEPS_all,MEPS_all_paired);
 % env = SelectPhaseBossEnv_Paironly(bd,stimulators.right,stimulators.left,sc,record,save_flag,MEP_s);
