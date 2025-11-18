@@ -23,40 +23,40 @@ from scipy.signal import filtfilt, hilbert
 from scipy.io import loadmat
 from spectrum import aryule
 
-
-
-
 SUBJECT_ID = 'Sub-01' # increase iteravely for each subject
 
 
-
 # Load MATLAB coefficients directly as numpy array
-mat_data = loadmat('filter_coeffs.mat')
-BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coeffs'].flatten())
+mat_data = loadmat('filter_coeffs.mat') # correct, matches BOSSDevice
+BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coeffs'].flatten()) # correct, matches BOSSDevice
 
 
-# EEG channel indices for C3 referencing
+# EEG channel indices for C3 referencing matches BOSSDevice
 C3_CHANNEL_INDEX = 4 # add 1 to convert to MATLAB (1-based)
 REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again 0-based
-REFERENCE_WEIGHT = 0.25
+REFERENCE_WEIGHT = 0.25 
 
 # Phase estimation constants
 TARGET_PHASE_RADIANS = [np.pi, 0, 'random']  # Three phase targets: Trough (π), Peak (0), Random (from CSV)
 RANDOM_PHASES_CSV_PATH = 'data/random_phases.csv'  # Path to CSV file with random phase targets
 DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases
-DEFAULT_HILBERT_WINDOW_SIZE = 64  # Note: MATLAB Phastimate implementation uses 128 for general processing,
 
-DEFAULT_EDGE_SAMPLES = 32  
-# DEFAULT_AR_MODEL_ORDER = 15  # Old value 
-DEFAULT_AR_MODEL_ORDER = 25  # # good balance between under- and overfitting
-DEFAULT_DOWNSAMPLE_RATIO = 10
+# Phastimate algorithm parameters (Zrenner et al. 2020)
+# Note: BOSSdevice firmware parameters are compiled in Simulink model (not accessible via API)
+# BOSSdevice examples show offset_samples=3-6 (depends on loop delay)
+# Zrenner2020: Uses 500ms windows, 128-sample Hilbert window at 500Hz (after 10x decimation from 5kHz)
+DEFAULT_HILBERT_WINDOW_SIZE = 128  
+DEFAULT_EDGE_SAMPLES = 64
+# Note: BOSS offset_samples=3-6 at 500Hz, scaled to your sampling rate this equals ~30-60 at 5000Hz pre-decimation
+DEFAULT_AR_MODEL_ORDER = 25  # AR model order - good balance between under/overfitting
+DEFAULT_DOWNSAMPLE_RATIO = 10  # Matches BOSSDevice: 5000Hz -> 500Hz
 
 # Processing timing constants
-DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.1
+DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.05
 
-# DEFAULT_BUFFER_SIZE_SECONDS = 1.0  # Old value - not matching Zrenner2018
-DEFAULT_BUFFER_SIZE_SECONDS = 0.5  # Updated to match Zrenner2018 parameters (500ms window)
-TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in seconds
+
+DEFAULT_BUFFER_SIZE_SECONDS = 0.5  # ?? 
+TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in s - correct (set here, can be adjusted for BOSS)
 
 # Set the Number of Trials per phase
 N_TRIALS_PER_PHASE = 100  # 100 trials per phase
