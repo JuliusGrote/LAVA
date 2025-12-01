@@ -1,0 +1,374 @@
+%% Read NeurOne raw EEG session
+data_load = 'C:\ProgramData\Bittium Biosignals Ltd\NeurOne64\SessionData\NeurOneUser\TestPerson\2025-11-21T111154';
+data_save = 'C:\Users\Eric James McDermott\Desktop\LAVA\data\sub-test';
+data_csv = 'C:\Users\Eric James McDermott\Desktop\LAVA\data\random_phases.csv';
+% Create data_save directory if it does not exist
+if ~exist(data_save, 'dir')
+    mkdir(data_save)
+end
+
+current_participant_name = 'test'; 
+sessionPhaseNumber = 3; % default
+
+% load data
+subject_data = module_read_neurone(...
+        fullfile(data_load, current_participant_name), ...
+        sessionPhaseNumber = sessionPhaseNumber);
+
+
+channel_labels = fieldnames(subject_data.signal)';
+channel_labels(end-1:end) = [];
+rs_EEG = [];
+for i = 1:length(channel_labels)
+    rs_EEG(:,i) = subject_data.signal.(channel_labels{i}).data;
+end
+
+%% Create EEGlab-compatible structure
+EEG_data = eeg_emptyset();
+EEG_data.data = rs_EEG';
+EEG_data.srate = subject_data.properties.samplingRate;
+EEG_data.nbchan = size(rs_EEG', 1);
+EEG_data.pnts = size(rs_EEG', 2);
+EEG_data.trials = 1;
+EEG_data.xmin = 0;
+EEG_data.xmax = (EEG_data.pnts - 1) / EEG_data.srate;
+EEG_data.times = linspace(EEG_data.xmin, EEG_data.xmax, EEG_data.pnts) * 1000; % in ms
+
+% Create chanlocs structure compatible with EEGlab
+for i = 1:length(channel_labels)
+    EEG_data.chanlocs(i).labels = channel_labels{i};
+end
+
+% Save data
+save([data_save 'LAVA_EEG_rs_' current_participant_name '.mat'], "EEG_data", '-v7.3')
+
+%% Collect all markers
+% Extract all marker information from subject_data
+triggers = subject_data.markers;
+
+random_phases = readtable(data_csv);
+
+BOSS_types = {'10', '20', '30'}; % BOSS trigger types 
+NS_type = 'Stimulation';
+NS_port = 'B';
+
+BOSS_Triggers.types = triggers.type(ismember(triggers.type, BOSS_types));
+BOSS_Triggers.times = triggers.time(ismember(triggers.type, BOSS_types));
+BOSS_Triggers.times = round(BOSS_Triggers.times*1000);
+BOSS_Triggers.phases = zeros(size(BOSS_Triggers.types));
+NS_Triggers.times = triggers.time(ismember(triggers.port, NS_port) & ismember(triggers.type, NS_type));
+NS_Triggers.times = round(NS_Triggers.times*1000);
+NS_Triggers.phases = zeros(size(NS_Triggers.times));
+
+random_phase_idx = 1; % Counter for type '30' triggers
+for i = 1:length(BOSS_Triggers.types)
+    switch BOSS_Triggers.types{i}
+        case '10'
+            BOSS_Triggers.phases(i) = pi;
+        case '20'
+            BOSS_Triggers.phases(i) = 0;
+        case '30'
+            BOSS_Triggers.phases(i) = random_phases.phase(random_phase_idx);
+            random_phase_idx = random_phase_idx + 1;
+    end
+end
+
+
+% use the same trigger phases
+if any(BOSS_Triggers.phases) && length(BOSS_Triggers.times) == length(NS_Triggers.times)
+    NS_Triggers.phases = BOSS_Triggers.phases;
+    fprintf("BOSS phases found or non-matching array sizes, copying over.\n")
+else
+    fprintf("No BOSS phases found, indexing over times.\n")
+
+    random_phase_idx = 1;
+    for i = 1:length(NS_Triggers.times)
+        if 0 < i && i < 11
+            NS_Triggers.phases(i) = pi;
+    
+        elseif 10 < i && i < 21
+    
+        else
+            NS_Triggers.phases(i) = random_phases.phase(random_phase_idx);
+            random_phase_idx = random_phase_idx + 1;
+        end
+    end
+end
+
+%% Preprocessing
+hjorth.channel = 'C3';
+
+switch hjorth.channel  % get surrounding variables for hjorth filter
+    case 'C3'
+        hjorth.electrodes = {'FC1', 'CP1', 'FC5', 'CP5'};
+    case 'C4'
+        hjorth.electrodes = {'FC2', 'CP2', 'FC6', 'CP6'};
+end
+
+down_fs = 500; % downsample frequency in Hz
+%% Do initial preprocessing: Downsample, detrend, laplacian montage
+EEG = prep_ds_dt_lap(EEG_data, hjorth, down_fs);
+
+
+%% Bandpass filter
+
+% Design the bandpass FIR filter
+settings.filter = load("../data/filter_coeffs.mat").coeffs;
+
+% Filter
+data = filtfilt(settings.filter, 1, EEG.data')';
+
+%% Phase estimation
+
+% hilbert transform all data
+hilb = hilbert(data);
+
+% min(time_current)
+
+% use the entire data to get ground truth phase
+phase.ground_truth = angle(hilb);
+
+% get the indexes of trigger times in downsampled data
+% Find nearest time points since downsampling creates discrete time points
+NS_times_ms = NS_Triggers.times; % already in ms from line 55
+BOSS_times_ms = BOSS_Triggers.times;
+NS_inds_ds = zeros(size(NS_times_ms));
+BOSS_inds_ds = zeros(size(BOSS_times_ms));
+
+for i = 1:length(NS_times_ms)
+    [~, NS_inds_ds(i)] = min(abs(EEG.times - NS_times_ms(i)));
+end
+fprintf('Found %d NS trigger indices in downsampled EEG data.\n', length(NS_inds_ds));
+fprintf('Trigger time differences (ms):\n');
+for i = 1:length(NS_inds_ds)  % Show first 5 as example
+    fprintf(' BOSS Trigger %d: requested %.2f ms, found %.2f ms (diff: %.2f ms)\n', ...
+        i, NS_times_ms(i), EEG.times(NS_inds_ds(i)), ...
+        NS_times_ms(i) - EEG.times(NS_inds_ds(i)));
+end
+
+
+for i = 1:length(BOSS_times_ms)
+    [~, BOSS_inds_ds(i)] = min(abs(EEG.times - BOSS_times_ms(i)));
+end
+fprintf('Found %d BOSS trigger indices in downsampled EEG data.\n', length(BOSS_inds_ds));
+fprintf('Trigger time differences (ms):\n');
+for i = 1:length(BOSS_inds_ds)  % Show first 5 as example
+    fprintf('  BOSS Trigger %d: requested %.2f ms, found %.2f ms (diff: %.2f ms)\n', ...
+        i, BOSS_times_ms(i), EEG.times(BOSS_inds_ds(i)), ...
+        BOSS_times_ms(i) - EEG.times(BOSS_inds_ds(i)));
+end
+
+
+% check angle at trigger times 
+phase.NS_at_triggers = phase.ground_truth(NS_inds_ds);
+phase.target = NS_Triggers.phases;
+NS_phase_error = phase.NS_at_triggers - phase.target';
+NS_mod_error = mod(NS_phase_error + pi, 2*pi) - pi; % wrap to [-pi, pi]
+phase.BOSS_at_triggers = phase.ground_truth(BOSS_inds_ds);
+BOSS_phase_error = phase.BOSS_at_triggers - phase.target';
+BOSS_mod_error = mod(BOSS_phase_error + pi, 2*pi) - pi; % wrap to [-pi, pi]
+
+corr_BOSS_NS = corrcoef(BOSS_mod_error, NS_mod_error);
+disp(["Correlation between NS and BOSS", corr_BOSS_NS(1,2)]);
+
+NS_times_sec = NS_Triggers.times / 1000; % convert ms to seconds
+BOSS_times_sec = BOSS_Triggers.times / 1000;
+
+% get difference in timing per trial
+diff_trigger = BOSS_times_sec - NS_times_sec;
+
+
+% Group indices by condition
+idx = 1:numel(NS_mod_error);
+
+grouped_NS = splitapply(@(i) {NS_mod_error(i)}, idx', G);
+grouped_BOSS = splitapply(@(i) {BOSS_mod_error(i)}, idx', G);
+
+% Compute means directly from numeric vectors
+mean_NS_mod = cellfun(@mean, grouped_NS);
+mean_BOSS_mod = cellfun(@mean, grouped_BOSS);
+
+
+
+
+%% Full plot
+
+figure('Units','pixels','Position',[100 100 1200 1000]);
+
+% Define relative positions [left bottom width height]
+top_pos = [0.05 0.55 0.9 0.4];    % top plot (full width, taller)
+bottom_left_pos = [0.05 0.05 0.43 0.4];  % bottom-left plot
+bottom_right_pos = [0.52 0.05 0.43 0.4]; % bottom-right plot
+
+
+% Top full-width plot
+ax1 = axes('Position', top_pos);
+hold on;
+
+% Plot scatter first to establish data range
+scatter(idx, NS_mod_error, 20, 'blue', 'filled');
+scatter(idx, BOSS_mod_error, 20, 'black', 'filled');
+ylim([-pi-0.1 pi+0.1]);
+
+
+max_x = length(NS_mod_error) + 1;
+% Add tolerance band (in background) spanning only data range
+tolerance = pi/40;
+x_limits = [min(NS_times_sec), max(NS_times_sec)];
+patch([0 max_x max_x 0], ...
+     [-tolerance -tolerance tolerance tolerance], ...
+     [0.7 0.6 0.3], 'FaceAlpha', 0.3, 'EdgeColor', 'none', ...
+     'DisplayName', 'Tolerance (±π/40)');
+plot([0 max_x], [tolerance tolerance], '-', 'Color', [0.7 0.6 0.3], 'HandleVisibility', 'off');
+plot([0 max_x], [-tolerance -tolerance], '-', 'Color', [0.7 0.6 0.3], 'HandleVisibility', 'off');
+
+% Bring scatter to front
+uistack(findobj(gca, 'Type', 'scatter'), 'top');
+
+x_offset = -0.8; % offset to the left in seconds
+random_drawn = false; % flag to draw random condition only once
+
+condition_changes = BOSS_Triggers.type
+
+    % Determine condition name and color based on target value
+        condition_name = 'π (trough)';
+        line_color = [0.549 0.173 0.224]; % RGB for #8c2c39
+        xline(10 + x_offset, '-', condition_name, ...
+            'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', line_color);
+
+        condition_name = '0 (peak)';
+        line_color = [0.188 0.478 0.102]; % RGB for #307a1a
+        xline(20 + x_offset, '-', condition_name, ...
+            'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', line_color);
+  
+        % Only draw random condition once
+   
+            condition_name = 'Random';
+            line_color = [0.2 0.2 0.2]; % RGB for #3990c3
+            xline(NS_mod_error(idx) + x_offset, '-', condition_name, ...
+                'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', line_color);
+            random_drawn = true;
+        end
+    end
+end
+
+xlabel('Time (seconds)');
+ylabel('Phase Error (radians)');
+legend('Phase Tolerance', 'Phase Error NS', 'Phase Error NS', 'Location', 'southeast');
+title('Phase Error at Trigger Times');      
+grid on;
+hold off;
+
+
+% Bottom-left: Mean Phase Error
+ax2 = axes('Position', bottom_left_pos);
+b = bar(ax2, [mean_NS_mod, mean_BOSS_mod]);
+b(1).FaceColor = 'k';
+b(2).FaceColor = 'b';
+x = {"π", "0", "Random"};
+set(ax2, 'XTick', 1:numel(x), 'XTickLabel', x);
+xlabel(ax2,"Phase Target");
+ylabel(ax2,"Mean Error (rad)");
+title(ax2,"Mean Phase Error");
+legend(ax2,'NS','BOSS','Location','southeast');
+
+% Bottom-right: Trigger differences
+ax3 = axes('Position', bottom_right_pos);
+plot(ax3, 1:numel(diff_trigger), diff_trigger, '-o');
+xlabel(ax3,"Trial Number");
+xlim([0, length(diff_trigger) + 1])
+ylabel(ax3,"Trigger difference (s)");
+title(ax3,"Timing differences (BOSS - NS)");
+grid(ax3,'on');
+
+
+%% function definitions 
+function EEG_lap = prep_ds_dt_lap(EEG, hjorth, down_fs)
+
+if nargin < 2
+    hjorth.channel = 'C3';
+    hjorth.electrodes = {'FC1', 'CP1', 'FC5', 'CP5'};
+end
+
+%% Settings
+
+temp = struct2cell(EEG.chanlocs);
+hjorth.channel_idx = find(strcmpi(hjorth.channel, temp(1,:)));
+for i = 1:length(hjorth.electrodes)
+    hjorth.electrode_idx(i) = find(strcmpi(hjorth.electrodes{i}, temp(1,:)));
+end
+clear i
+
+%% Downsample
+
+% settings
+ds_fs = down_fs;                               % downsampling freqency in Hz
+
+% start timer
+tic
+
+% start notification
+disp('Start downsampling...')
+
+% Check EEG structure consistency before resampling
+EEG = eeg_checkset(EEG);
+
+% downsample data
+EEG = pop_resample(EEG, ds_fs);
+
+
+%% Detrend
+
+% settings
+% define prestim period
+t.detrend = [min(EEG.times), max(EEG.times)];         % ms time wrt TMS
+
+% start timer
+tic
+
+% start notification
+disp('Start detrending...')
+
+% detrend data linearly
+% To use this: Requires EEGlab with TESA plugin
+EEG = tesa_detrend(EEG, 'linear', t.detrend);
+
+% timing notification
+fprintf('detrending completed. Expired time: %.0f seconds \n', toc)
+
+
+%% Laplacian montage
+
+% start timer
+tic
+
+% start notification
+disp('Start laplacian...')
+
+EEG_lap = EEG;
+
+% Sanity check: EEG.data should be [nbchan x pnts x trials] or [nbchan x pnts]
+data = EEG_lap.data;
+
+% If 2D, reshape to 3D for consistent processing
+if ndims(data) == 2
+    data = reshape(data, size(data,1), size(data,2), 1);
+end
+
+% apply laplacian montage
+lap_data = data(hjorth.channel_idx,:,:) - ...
+    mean(data(hjorth.electrode_idx,:,:), 1);
+
+clear data
+
+% Update EEG_lap structure
+EEG_lap.data = lap_data;
+EEG_lap.nbchan = 1;
+EEG_lap.chanlocs = [hjorth.channel '-centered laplacian'];
+EEG_lap.soundLeadfield = [];
+
+% timing notification
+fprintf('Laplacian montage completed. Expired time: %.0f seconds \n', toc)
+
+
+end % eof [EEG_lap] = preprocess(EEG)

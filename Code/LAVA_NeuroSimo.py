@@ -54,12 +54,11 @@ DEFAULT_DOWNSAMPLE_RATIO = 10  # Matches BOSSDevice: 5000Hz -> 500Hz
 # Processing timing constants
 DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.05
 
-
 DEFAULT_BUFFER_SIZE_SECONDS = 0.5  # ?? 
 TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in s - correct (set here, can be adjusted for BOSS)
 
 # Set the Number of Trials per phase
-N_TRIALS_PER_PHASE = 100  # 100 trials per phase
+N_TRIALS_PER_PHASE = 200  # 200 trials per phase
 N_PHASES = 3  # Number of phase targets (π, 0, random)
 
 class Decider:
@@ -184,35 +183,48 @@ class Decider:
         Returns:
             Array of random phase values
         """
+        phases_array = None
+        generate_phases = False
         try:
             with open(csv_path, 'r') as f:
                 reader = csv.reader(f)
-                next(reader, None)  # Skip header if present
+
                 phases = [float(row[0]) for row in reader]
-            
+                
             if not phases:
-                print(f"Warning: No phases found in {csv_path}. Using default random generation.")
+                print(f"Warning: No phases found in {csv_path}. Generating random phases.")
                 # Generate default random phases if file is empty
-                return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
-            
-            phases_array = np.array(phases)
-            print(f"Loaded {len(phases_array)} random phase targets from {csv_path}")
-            
-            # Ensure we have enough phases for all trials
-            required_phases = self.n_trials_per_phase
-            if len(phases_array) < required_phases:
-                print(f"Warning: CSV has {len(phases_array)} phases but need {required_phases}. Repeating phases.")
-                # Repeat phases to fill required trials
-                phases_array = np.tile(phases_array, int(np.ceil(required_phases / len(phases_array))))[:required_phases]
-            
-            return phases_array
-            
+                generate_phases = True
+            else:
+                phases_array = np.array(phases)
+                print(f"Loaded {len(phases_array)} random phase targets from {csv_path}")
+                
+                # Ensure we have enough phases for all trials
+            if len(phases_array) < self.n_trials_per_phase:
+                print(f"Warning: CSV has {len(phases_array)} phases but need {self.n_trials_per_phase}. Generating random phases.")
+                # Scrub old phases and generate new ones
+                generate_phases = True
+
         except FileNotFoundError:
             print(f"Warning: Random phases CSV file not found at {csv_path}. Generating random phases.")
-            return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
+            generate_phases = True
         except Exception as e:
             print(f"Error loading random phases from CSV: {e}. Generating random phases.")
-            return np.random.uniform(0, 2 * np.pi, self.n_trials_per_phase)
+            generate_phases = True
+        
+        # Always save the phases array to ensure newly generated phases are saved
+        if generate_phases:
+            np.random.seed(42)  # For reproducibility
+            phases_array = np.random.uniform(-np.pi, np.pi, self.n_trials_per_phase)
+            print(f"Generated {len(phases_array)} random phase targets.")
+            save_path = csv_path
+            with open(save_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                for phase in phases_array:
+                    writer.writerow([phase])
+            print(f"Saved {len(phases_array)} phases to {save_path}")
+        
+        return phases_array
 
     def process(self, current_time: float, timestamps: np.ndarray, valid_samples: np.ndarray, 
                 eeg_buffer: np.ndarray, emg_buffer: np.ndarray, current_sample_index: int, 
@@ -594,3 +606,5 @@ class Decider:
                 writer.writerow([phase])
 
         print(f'Logs saved for subject {filename_prefix} in {path}')
+
+test_decider = Decider(num_eeg_channels=64, num_emg_channels=0, sampling_frequency=5000.0)
