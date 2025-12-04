@@ -1,15 +1,17 @@
 %% Read NeurOne raw EEG session
-data_load = '/home/lisa/projects/LAVA/data/2025-11-21T111154';
+data_load = '/home/lisa/projects/LAVA/data/sub-001/2025-12-02T162507';
 data_save = '/home/lisa/projects/LAVA/data';
 data_csv = '/home/lisa/projects/LAVA/data/random_phases.csv';
 fig_dir = '/home/lisa/projects/LAVA/figures/';
 
+addpath(genpath('/home/lisa/projects/LAVA/toolboxes'));
+
 % Define colorblind-friendly palette (high contrast, distinct for all types of colorblindness)
-color_NS = [216/255, 90/255, 27/255];         % Orange rgba(216, 90, 27, 1) - distinguishable by all
-color_BOSS = [0/255, 114/255, 178/255];       % Blue rgb(0, 114, 178) - safe for colorblind
-color_line = [34/255, 34/255, 34/255];     % Gray rgba(34, 34, 34, 1)
+color_NS = [216/255, 90/255, 27/255];         % Orange #d85a1bff - distinguishable by all
+color_BOSS = [0/255, 114/255, 178/255];       % Blue #0072b2ff - safe for colorblind
+color_line = 'black';     % Gray rgba(34, 34, 34, 1)
 color_tolerance = [240/255, 228/255, 66/255]; % Yellow rgba(197, 166, 75, 1) - high visibility
-color_timing = [0/255, 158/255, 115/255];     % Bluish green rgb(0, 158, 115) - colorblind safe
+color_timing = [0/255, 158/255, 115/255];     % Bluish green #009e73ff - colorblind safe
 
 % Create data_save directory if it does not exist
 if ~exist(data_save, 'dir')
@@ -100,7 +102,7 @@ else
         elseif 10 < i && i < 21
     
         else
-            NS_Triggers.phases(i) = random_phases.phase(random_phase_idx);
+            NS_Triggers.phases(i) = random_phases.Var1(random_phase_idx);
             random_phase_idx = random_phase_idx + 1;
         end
     end
@@ -153,7 +155,6 @@ for i = 1:length(NS_inds_ds)  % Show first 5 as example
         NS_times_ms(i) - EEG.times(NS_inds_ds(i)));
 end
 
-
 for i = 1:length(BOSS_times_ms)
     [~, BOSS_inds_ds(i)] = min(abs(EEG.times - BOSS_times_ms(i)));
 end
@@ -164,7 +165,6 @@ for i = 1:length(BOSS_inds_ds)  % Show first 5 as example
         i, BOSS_times_ms(i), EEG.times(BOSS_inds_ds(i)), ...
         BOSS_times_ms(i) - EEG.times(BOSS_inds_ds(i)));
 end
-
 
 % check angle at trigger times 
 phase.NS_at_triggers = phase.ground_truth(NS_inds_ds);
@@ -185,7 +185,7 @@ BOSS_times_sec = BOSS_Triggers.times / 1000;
 
 % get difference in timing per trial
 diff_trigger = BOSS_times_sec - NS_times_sec;
-
+deriv_diff_trigger = [0; diff(diff_trigger)]; % first derivative of timing differences
 
 % Group indices by condition
 idx = 1:numel(NS_mod_error);
@@ -226,6 +226,7 @@ BOSS_random_angles = angles_BOSS(G==3)';
 [test_BOSS.pi.params(1), test_BOSS.pi.params(2)] = circ_vmpar(BOSS_pi_angles);
 [test_BOSS.zero.params(1), test_BOSS.zero.params(2)] = circ_vmpar(BOSS_zero_angles);
 [test_BOSS.random.params(1), test_BOSS.random.params(2)] = circ_vmpar(BOSS_random_angles);
+[test_random.params(1), test_random.params(2)] = circ_vmpar(random_phases.Var1);
 
 fprintf('\nFitted von Mises parameters:\n');
 fprintf('   NS Target pi: mu = %.4f, kappa = %.4f\n', test_NS.pi.params(1), test_NS.pi.params(2));
@@ -236,7 +237,6 @@ fprintf('   BOSS Target 0: mu = %.4f, kappa = %.4f\n', test_BOSS.zero.params(1),
 fprintf('   BOSS Target Random: mu = %.4f, kappa = %.4f\n', test_BOSS.random.params(1), test_BOSS.random.params(2));
 
 % 1. test whehter the agnular data follows von Mises distribution
-
 test_NS.pi.theor_dist = circ_vmrnd(test_NS.pi.params(1), test_NS.pi.params(2), length(NS_pi_angles));
 test_NS.zero.theor_dist = circ_vmrnd(test_NS.zero.params(1), test_NS.zero.params(2), length(NS_zero_angles));
 test_NS.random.theor_dist = circ_vmrnd(test_NS.random.params(1), test_NS.random.params(2), length(NS_random_angles));
@@ -244,21 +244,24 @@ test_BOSS.pi.theor_dist = circ_vmrnd(test_BOSS.pi.params(1), test_BOSS.pi.params
 test_BOSS.zero.theor_dist = circ_vmrnd(test_BOSS.zero.params(1), test_BOSS.zero.params(2), length(BOSS_zero_angles));
 test_BOSS.random.theor_dist = circ_vmrnd(test_BOSS.random.params(1), test_BOSS.random.params(2), length(BOSS_random_angles));
 
+
+
 % theoretical data for KDE comparison
 kappa_pi = max(1,(test_NS.pi.params(2) + test_BOSS.pi.params(2)) / 2);      % Average kappa for pi target
 kappa_zero = max(1,(test_NS.zero.params(2) + test_BOSS.zero.params(2)) / 2); % Average kappa for zero target
-kappa_random = 0;                     % Keep as 0 for uniform (random) distribution
+                     % Keep as 0 for uniform (random) distribution
 
 fprintf('\n(Averaged) kappa values for theoretical distributions:\n');
 fprintf('   Target pi: kappa = %.4f\n', kappa_pi);
 fprintf('   Target 0: kappa = %.4f\n', kappa_zero);
-fprintf('   Target Random: kappa = %.4f\n', kappa_random);
+
 
 
 
 test_pi.theor_data = circ_vmpdf(theta_grid, pi, kappa_pi)';       % Use averaged kappa for pi
 test_zero.theor_data = circ_vmpdf(theta_grid, 0, kappa_zero)';    % Use averaged kappa for zero
-test_random.theor_data = circ_vmpdf(theta_grid, 0, kappa_random)'; % Kappa=0 for uniform
+% for random data just get a ksd of all random phases
+test_random.theor_data = circ_ksdensity(random_phases.Var1, theta_grid);
 
 
 % test whether angles_NS follows von Mises distribution
@@ -332,21 +335,27 @@ fprintf('   Target 0: r = %.4f, with p = %.6f\n', test_zero.ksd_corr_NS_BOSS(1),
 fprintf('   Target Random: r = %.4f, with p = %.6f\n', test_random.ksd_corr_NS_BOSS(1), test_random.ksd_corr_NS_BOSS(2));
 
 % get conf_interval for mean phase
-% test_NS.pi.conf_mean = circ_confmean(NS_pi_angles');
-% test_NS.zero.conf_mean = circ_confmean(NS_zero_angles');
-% test_BOSS.pi.conf_mean = circ_confmean(BOSS_pi_angles');
-% test_BOSS.zero.conf_mean = circ_confmean(BOSS_zero_angles');
-test_NS.pi.conf_mean = [pi/8, 3*pi/8]; % placeholder
-test_NS.zero.conf_mean = [-pi/8, pi/8]; % placeholder
-test_BOSS.pi.conf_mean = [pi/6, 2*pi/5]; % placeholder
-test_BOSS.zero.conf_mean = [-pi/6, pi/6]; % placeholder
+test_NS.pi.conf_int.d = circ_confmean(NS_pi_angles);
+test_NS.zero.conf_int.d = circ_confmean(NS_zero_angles);
+test_BOSS.pi.conf_int.d = circ_confmean(BOSS_pi_angles);
+test_BOSS.zero.conf_int.d = circ_confmean(BOSS_zero_angles);
+
+% compute confidence intervals
+test_NS.pi.conf_int.upper = test_NS.pi.params(1) + test_NS.pi.conf_int.d;
+test_NS.pi.conf_int.lower = test_NS.pi.params(1) - test_NS.pi.conf_int.d;
+test_NS.zero.conf_int.upper = test_NS.zero.params(1) + test_NS.zero.conf_int.d;
+test_NS.zero.conf_int.lower = test_NS.zero.params(1) - test_NS.zero.conf_int.d;
+test_BOSS.pi.conf_int.upper = test_BOSS.pi.params(1) + test_BOSS.pi.conf_int.d;
+test_BOSS.pi.conf_int.lower = test_BOSS.pi.params(1) - test_BOSS.pi.conf_int.d;
+test_BOSS.zero.conf_int.upper = test_BOSS.zero.params(1) + test_BOSS.zero.conf_int.d;
+test_BOSS.zero.conf_int.lower = test_BOSS.zero.params(1) - test_BOSS.zero.conf_int.d;
 
 
 fprintf('\nConfidence intervals for mean phase:\n');
-fprintf('   NS Target pi: [%.4f, %.4f]\n', test_NS.pi.conf_mean(1), test_NS.pi.conf_mean(2));
-fprintf('   NS Target 0: [%.4f, %.4f]\n', test_NS.zero.conf_mean(1), test_NS.zero.conf_mean(2));
-fprintf('   BOSS Target pi: [%.4f, %.4f]\n', test_BOSS.pi.conf_mean(1), test_BOSS.pi.conf_mean(2));
-fprintf('   BOSS Target 0: [%.4f, %.4f]\n', test_BOSS.zero.conf_mean(1), test_BOSS.zero.conf_mean(2));
+fprintf('   NS Target pi: [%.4f, %.4f]\n', test_NS.pi.conf_int.lower, test_NS.pi.conf_int.upper);
+fprintf('   NS Target 0: [%.4f, %.4f]\n', test_NS.zero.conf_int.lower, test_NS.zero.conf_int.upper);
+fprintf('   BOSS Target pi: [%.4f, %.4f]\n', test_BOSS.pi.conf_int.lower, test_BOSS.pi.conf_int.upper);
+fprintf('   BOSS Target 0: [%.4f, %.4f]\n', test_BOSS.zero.conf_int.lower, test_BOSS.zero.conf_int.upper);
 
 % make a KDE per condition and algorithm
 % get the theoretical
@@ -387,8 +396,6 @@ fprintf('   NS Target Random: OVL = %.4f\n', test_NS.random.ksd_ovl);
 fprintf('   BOSS Target pi: OVL = %.4f\n', test_BOSS.pi.ksd_ovl);
 fprintf('   BOSS Target 0: OVL = %.4f\n', test_BOSS.zero.ksd_ovl);
 fprintf('   BOSS Target Random: OVL = %.4f\n', test_BOSS.random.ksd_ovl);
-
-
 %% Compute the SNR PSD of the EEG data
 fs = down_fs; % Sampling frequency after downsampling
 eeg_signal = EEG.data; % Use channel 1, or change as needed
@@ -423,8 +430,7 @@ y_filter =(H.*conj(H))'; % get power response of filter
 %% Plot 0: SNR over Frequency
 snr_threshold = 5; % SNR threshold in dB
 
-
-figure("Name", "SNR over Frequency", 'Units','pixels','Position',[400 400 3400 1800]);
+figure('Units', 'normalized', 'Position', [0, 0, 1, 1]);
 hold on;
 yline(snr_threshold, '-', 'DisplayName', 'SNR Threshold', 'LineWidth', 1, 'Color', 'r');
 ylim([min(new_spec) - 1, max(max(new_spec), snr_threshold) + 5]);
@@ -440,21 +446,24 @@ legend;
 grid on;
 hold off;
 
+% save figure
+saveas(gcf, fullfile(fig_dir, sprintf('%s_SNR_Frequency.png', current_participant_name)));
+
 %% Plot 1: Phase error and trigger times
-figure('Units','pixels','Position',[200 200 2600 2000]);
+figure('Units', 'normalized', 'Position', [0, 0, 1, 1] ,'Renderer', 'painters');
 
 % Define relative positions [left bottom width height]
 top_pos = [0.05 0.55 0.9 0.4];    % top plot (full width, taller)
 bottom_left_pos = [0.05 0.06 0.3 0.4];  % bottom-left plot
 bottom_right_pos = [0.4 0.06 0.55 0.4]; % bottom-right plot
-
-% top
+line_width = 0.6;
+% top plot: Phase Error Scatter with Tolerance Band
 ax1 = axes('Position', top_pos);
 hold on;
 
 % Plot scatter first to establish data range
-scatter(idx, NS_mod_error, 15, color_NS, 'filled');
-scatter(idx, BOSS_mod_error, 15, color_BOSS, 'filled');
+scatter(idx, NS_mod_error, 5, color_NS, 'filled');
+scatter(idx, BOSS_mod_error, 5, color_BOSS, 'filled');
 ylim([-pi-0.1 pi+0.1]);
 
 
@@ -468,36 +477,61 @@ patch([-1 max_x max_x -1], ...
 plot([-1 max_x], [tolerance tolerance], '-', 'Color', color_tolerance, 'HandleVisibility', 'off');
 plot([-1 max_x], [-tolerance -tolerance], '-', 'Color', color_tolerance, 'HandleVisibility', 'off');
 
-% Bring scatter to front
-uistack(findobj(gca, 'Type', 'scatter'), 'top');
-
-x_offset = -0.8; % offset to the left in seconds
-
 % detect conditiion changes in BOSS_Trrigers.types
 cond_changes = [1; find(diff(cellfun(@str2double, BOSS_Triggers.types)) ~= 0) + 1; length(BOSS_Triggers.types) + 1];
 
+condition_names = {'π (trough)', '0 (peak)', 'Random'};
 
-    % Determine condition name and color based on target value
-condition_name = 'π (trough)';
-xline(cond_changes(1) + x_offset, '-', condition_name, ...
-    'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', color_line);
+% Add patches and text labels at the center of each condition region
+for i = 1:length(cond_changes)-1
+    x_start = cond_changes(i) - 0.5;
+    x_end = cond_changes(i+1) - 0.5;
+    x_mid = (x_start + x_end) / 2;
+    
+    % Draw patch for condition region
+    patch([x_start-1, x_end, x_end, x_start-1], ...
+         [pi+0.05, pi+0.05, pi+0.5, pi+0.5], ...
+         color_timing * i /3, 'FaceAlpha', 0.25, 'EdgeColor', 'none', ...
+         'HandleVisibility', 'off');
+    
+    % Add text label
+    text(x_mid, pi+0.27, condition_names{i}, ...
+        'Color', 'black', 'FontSize', 8, ...
+        'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle');
+end
 
-condition_name = '0 (peak)';
-xline(cond_changes(2) + x_offset, '-', condition_name, ...
-    'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', color_line);
-
-
-
-condition_name = 'Random';
-xline(cond_changes(3) + x_offset, '-', condition_name, ...
-    'LineWidth', 1, 'LabelVerticalAlignment', 'bottom', 'Color', color_line);
+% Bring scatter to front
+uistack(findobj(gca, 'Type', 'scatter'), 'top');
 
 xlim([-0.5, max_x]);
+ylim([-pi-0.5, pi+0.5]);
+
+% Draw custom grid only below pi
+ax1.YGrid = 'on';
+ax1.XGrid = 'on';
+ax1.GridColor = [0.15 0.15 0.15];
+ax1.GridAlpha = 0.15;
+
+% Get the y-tick values and only show grid for ticks below pi
+ytick_vals = ax1.YTick;
+ytick_vals_below_pi = ytick_vals(ytick_vals <= pi);
+
+% Turn off default grid and draw manual gridlines only below pi
+grid off;
+for y_val = ytick_vals_below_pi
+    plot([-0.5, max_x], [y_val, y_val], '-', 'Color', [0.15 0.15 0.15 0.15], 'LineWidth', 0.5, 'HandleVisibility', 'off');
+end
+
+% Keep vertical gridlines throughout
+xtick_vals = ax1.XTick;
+for x_val = xtick_vals
+    plot([x_val, x_val], [-pi-0.5, pi], '-', 'Color', [0.15 0.15 0.15 0.15], 'LineWidth', 0.5, 'HandleVisibility', 'off');
+end
+
 xlabel('Trial Number');
 ylabel('Phase Error (radians)');
-legend('Phase Tolerance', 'Phase Error NS', 'Phase Error NS', 'Location', 'southeast');
+legend('Phase Tolerance', 'Phase Error NS', 'Phase Error BOSS', 'Location', 'southeast');
 title('Phase Error at Trigger Times');      
-grid on;
 hold off;
 
 % Bottom-left: Mean Phase Error
@@ -513,15 +547,60 @@ title(ax2,"Mean Phase Error (absolute)");
 legend(ax2,'NS','BOSS','Location','southeast');
 
 % Bottom-right: Trigger differences
-ax3 = axes('Position', bottom_right_pos);
-plot(ax3, 1:numel(diff_trigger), diff_trigger, '-o', 'Color', color_timing, 'MarkerFaceColor', color_timing);
-xlabel(ax3,"Trial Number");
-xlim([0, length(diff_trigger) + 1])
-ylabel(ax3,"Trigger difference (s)");
-title(ax3,"Timing differences (BOSS - NS)");
-grid(ax3,'on');
 
-saveas(gcf, fullfile(fig_dir, ['phaseerror_and_triggertimes_' current_participant_name '.png']));
+
+ax3 = axes('Position', bottom_right_pos);
+
+% Calculate limits (ignoring NaNs)
+y_max = max(diff_trigger, [], 'omitnan') + 5;
+min_diff = min(diff_trigger, [], 'omitnan');
+min_deriv = min(deriv_diff_trigger*10, [], 'omitnan');
+y_min = min([min_diff, min_deriv]) - 2;
+x_max = numel(diff_trigger) + 1;
+
+% Plot on Left Axis (Manual)
+hold(ax3, 'on');
+% Plot vertical lines (Condition separators)
+plot(ax3, [cond_changes(2), cond_changes(2)], [y_min, y_max], '-', 'LineWidth', line_width, 'Color', color_line);
+plot(ax3, [cond_changes(3), cond_changes(3)], [y_min, y_max], '-', 'LineWidth', line_width, 'Color', color_line);
+
+% Plot Difference Data
+plot(ax3, 1:numel(diff_trigger), diff_trigger, '-', 'Color', color_timing, 'LineWidth', 1.5);
+
+% Labels and Limits (Left)
+ylabel(ax3, "Trigger difference (s)");
+ylim(ax3, [y_min y_max]);
+xlim(ax3, [0 x_max]);
+xlabel(ax3, "Trial Number");
+ax3.YColor = color_line; % Force black color
+ax3.Box = 'off'; % Turn off box to avoid obscuring right axis ticks if any
+grid(ax3, 'on');
+
+% Add text labels for conditions
+text(ax3, cond_changes(1)+7, y_max*0.79, 'π (trough)', 'Color', color_line, 'Rotation', 90, 'VerticalAlignment', 'top');
+text(ax3, cond_changes(2)+3, y_max*0.83, '0 (peak)', 'Color', color_line, 'Rotation', 90, 'VerticalAlignment', 'top');
+text(ax3, cond_changes(3)+3, y_max*0.82, 'Random', 'Color', color_line, 'Rotation', 90, 'VerticalAlignment', 'top');
+
+% Create Right Axis (Manual)
+ax3_right = axes('Position', ax3.Position);
+set(ax3_right, 'YAxisLocation', 'right', 'Color', 'none', 'XTick', []);
+hold(ax3_right, 'on');
+
+% Plot Derivative Data (unscaled)
+plot(ax3_right, 1:numel(deriv_diff_trigger), deriv_diff_trigger, '-', 'Color', color_BOSS, 'LineWidth', 1.0);
+
+% Labels and Limits (Right)
+ylabel(ax3_right, 'Derivative s/trial');
+ylim(ax3_right, [y_min/10 y_max/10]);
+xlim(ax3_right, [0 x_max]); % Sync x-limits
+ax3_right.YColor = color_line; % Force black color
+ax3_right.Box = 'off';
+
+title(ax3, "Timing differences (BOSS - NS)");
+linkaxes([ax3, ax3_right], 'x'); % Link x-axes
+
+% Force renderer and save with print for better quality
+print(gcf, fullfile(fig_dir, ['phaseerror_and_triggertimes_' current_participant_name '.png']), '-dpng', '-r300', '-painters');
 
 %% Plot 2: 2x3 polar-grid (rows: NS, BOSS) × (cols: π, 0, Random)
 % Prepare target mapping and angle arrays
@@ -529,14 +608,9 @@ targets = {'π','0','Random'};
 target_fields = {'pi', 'zero', 'random'};
 target_angles = [pi, 0, NaN]; % NaN for Random (no target line)
 alg_labels = {'NS','BOSS'};
-% Determine global max for radial limit
-all_angles = [NS_pi_angles; NS_zero_angles; NS_random_angles; ...
-              BOSS_pi_angles; BOSS_zero_angles; BOSS_random_angles];
-[counts, edges] = histcounts(all_angles, 30, 'Normalization', 'probability');
-global_max = max(counts);
 
 % Create figure and layout
-figure('Units','pixels','Position',[200 200 3600 2000]);
+figure('Units', 'normalized', 'Position', [0.1, 0, 1, 1]);
 left_margin = 0.06; right_margin = 0.01; top_margin = 0.01; bottom_margin = 0.05;
 cols = 3; rows = 2;
 width = (1.05 - left_margin - right_margin) / cols;
@@ -568,9 +642,10 @@ for col = 1:cols
         
         h = polarhistogram(ax, data, 30, 'Normalization', 'probability', ...
             'FaceColor', col_color, 'FaceAlpha', 0.75, 'EdgeColor', 'none', Facealpha = 0.7);
-
+        y_lim = max(h.Values)*1.05;
+        
         % set radial limit consistent across panels
-        rlim(ax, [0 global_max*1.1]);
+        rlim(ax, [0 y_lim]);
         thetaticks(ax, 0:45:315);
         thetaticklabels(ax, {'0°','45°','90°','135°','180°','225°','270°','315°'});
         ax.ThetaDir = 'clockwise';
@@ -581,31 +656,31 @@ for col = 1:cols
             t = target_angles(col);
             t2 = mod(t, 2*pi);
             hold(ax, 'on');
-            polarplot(ax, [t2 t2], [0.003 global_max*1.1], '--k', 'LineWidth', 1.0);
+            polarplot(ax, [t2 t2], [0.003 y_lim], '--k', 'LineWidth', 1.0);
             
             hold(ax, 'off');
             % confidence interval shading
             if row == 1
-                conf_int = test_NS.(target_fields{col}).conf_mean;
+                conf_int = [test_NS.(target_fields{col}).conf_int.lower, test_NS.(target_fields{col}).conf_int.upper];
                 color_conf = color_NS*0.7;
             else
-                conf_int = test_BOSS.(target_fields{col}).conf_mean;
+                conf_int = [test_BOSS.(target_fields{col}).conf_int.lower, test_BOSS.(target_fields{col}).conf_int.upper];
                 color_conf = color_BOSS*0.6;
             end
             % Define the angular range between the two confidence bounds
             theta_arc = linspace(conf_int(1), conf_int(2), 100); % angles for the arc
-            r_arc = global_max*1.1;     % fixed radius at outer edge
+            r_arc = y_lim;     % fixed radius at outer edge
 
             hold(ax, 'on');
             polarplot(ax, theta_arc, r_arc * ones(size(theta_arc)), ...
                 'Color', color_conf, 'LineWidth', 4);
-            polarplot(ax, [mu_hat mu_hat], [0.003 global_max*1.1], '-', 'Color', color_conf, 'LineWidth', 1.25);
+            polarplot(ax, [mu_hat mu_hat], [0.003 y_lim], '-', 'Color', color_conf, 'LineWidth', 1.25);
             
             
             hold(ax, 'off');  
         end
         
-            text(ax, -pi, global_max*1.5, sprintf('%s — %s\n^{(p = %.3f)}', alg_labels{row}, targets{col}, p_val), ...
+            text(ax, -pi, y_lim*1.35, sprintf('%s — %s\n^{(p = %.3f)}', alg_labels{row}, targets{col}, p_val), ...
             'Rotation', 90, ...         % Rotate text vertically
             'HorizontalAlignment', 'center', ...
             'FontSize', fontsize, 'FontWeight', 'bold');     
@@ -614,11 +689,10 @@ for col = 1:cols
     % add the circular corr coeff between NS and BOSS for each target
     circ_correff = eval(['test_' target_fields{col} '.ksd_corr_NS_BOSS(1)']);
     % just below the 90° — render 'circ' as a lowercase subscript
-    text(ax, pi/2, global_max*1.35, sprintf('r_{%s} = %.2f', 'circ', circ_correff), ...
+    text(ax, pi/2, y_lim*1.25, sprintf('r_{%s} = %.2f', 'circ', circ_correff), ...
         'HorizontalAlignment', 'center', ...
         'FontSize', fontsize, 'FontWeight', 'bold', ...
         'Interpreter', 'tex');
-
 
 end
 
@@ -630,61 +704,55 @@ sgtitle('Phase distributions by target and algorithm', ...
 saveas(gcf, fullfile(fig_dir, ['phase_distributions_polar_' current_participant_name '.png']));
 
 %% Plot 3: KDE estimates of phase distributions
-figure('Units','pixels','Position',[400 400 4500 1700]);
+figure('Units', 'normalized', 'Position', [0.1, 0.1, 1, 0.7]);
 
 line_width = 1.1;
 alpha_hist = 0.2;
 
-% polar plot 1 for pi target
-ax1 = polaraxes('Position', [0.05, 0.05, 0.25, 0.85]);
-hold(ax1, 'on');
-h_pi_NS = polarhistogram(ax1, NS_pi_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_NS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none', 'HandleVisibility', 'off');
-h_pi_BOSS = polarhistogram(ax1, BOSS_pi_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_BOSS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none','HandleVisibility', 'off');
-kde_scale_1 = max([h_pi_NS.Values, h_pi_BOSS.Values]) / max([test_NS.pi.ksd_estimate, test_BOSS.pi.ksd_estimate, test_pi.theor_data]);  
-polarplot(ax1, theta_grid, test_NS.pi.ksd_estimate*kde_scale_1, 'LineWidth', line_width, 'Color', color_NS);
-polarplot(ax1, theta_grid, test_BOSS.pi.ksd_estimate*kde_scale_1, 'LineWidth', line_width, 'Color', color_BOSS);
-polarplot(ax1, theta_grid, test_pi.theor_data*kde_scale_1, 'LineWidth', line_width, 'Color', color_line);
-hold(ax1, 'off');
-pi_max = max([h_pi_NS.Values, h_pi_BOSS.Values, max(test_pi.theor_data*kde_scale_1)]);
-text(ax1, -pi/2, pi_max*1.4+0.09, sprintf('Target π\nr_{circ, NS} = %.3f / r_{circ, BOSS} = %.3f', test_NS.pi.ksd_corr(1), test_BOSS.pi.ksd_corr(1)), ...
-            'HorizontalAlignment', 'center', ...
-            'FontSize', fontsize, 'FontWeight', 'bold');   
+% Define target configurations
+target_configs = struct(...
+    'field', {'pi', 'zero', 'random'}, ...
+    'label', {'Target π', 'Target 0', 'Target Random'}, ...
+    'NS_angles', {NS_pi_angles, NS_zero_angles, NS_random_angles}, ...
+    'BOSS_angles', {BOSS_pi_angles, BOSS_zero_angles, BOSS_random_angles}, ...
+    'x_position', {0.05, 0.38, 0.71}, ...
+    'text_y_scale', {0.5, 0.6, 0.4});
 
-% polar plot 2 for zero target
-ax2 = polaraxes('Position', [0.38, 0.05, 0.25, 0.85]);
-hold(ax2, 'on');
-h_zero_NS = polarhistogram(ax2, NS_zero_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_NS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none','HandleVisibility', 'off');
-h_zero_BOSS = polarhistogram(ax2, BOSS_zero_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_BOSS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none','HandleVisibility', 'off');
-kde_scale_2 = max([h_zero_NS.Values, h_zero_BOSS.Values]) / max([test_NS.zero.ksd_estimate, test_BOSS.zero.ksd_estimate, test_zero.theor_data]);  
-polarplot(ax2, theta_grid, test_NS.zero.ksd_estimate*kde_scale_2, 'LineWidth', line_width, 'Color', color_NS);
-polarplot(ax2, theta_grid, test_BOSS.zero.ksd_estimate*kde_scale_2, 'LineWidth', line_width, 'Color', color_BOSS);
-polarplot(ax2, theta_grid, test_zero.theor_data*kde_scale_2, 'LineWidth', line_width, 'Color', color_line); 
-hold(ax2, 'off');
-zero_max = max([h_zero_NS.Values, h_zero_BOSS.Values, max(test_zero.theor_data*kde_scale_2)]);
-text(ax2, -pi/2, zero_max*1.4, sprintf('Target 0\nr_{circ, NS} = %.3f / r_{circ, BOSS} = %.3f', test_NS.zero.ksd_corr(1), test_BOSS.zero.ksd_corr(1)), ...
-            'HorizontalAlignment', 'center', ...
-            'FontSize', fontsize, 'FontWeight', 'bold');
-
-% polar plot 3 for random target
-ax3 = polaraxes('Position', [0.71, 0.05, 0.25, 0.85]);
-hold(ax3, 'on');
-h_random_NS = polarhistogram(ax3, NS_random_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_NS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none','HandleVisibility', 'off');
-h_random_BOSS = polarhistogram(ax3, BOSS_random_angles, 30, 'Normalization', 'pdf', ...
-    'FaceColor', color_BOSS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none','HandleVisibility', 'off');
-kde_scale_3 = max([h_random_NS.Values, h_random_BOSS.Values]) / max([test_NS.random.ksd_estimate, test_BOSS.random.ksd_estimate, test_random.theor_data]);  
-polarplot(ax3, theta_grid, test_NS.random.ksd_estimate*kde_scale_3, 'LineWidth', line_width, 'Color', color_NS);
-polarplot(ax3, theta_grid, test_BOSS.random.ksd_estimate*kde_scale_3, 'LineWidth', line_width, 'Color', color_BOSS);
-polarplot(ax3, theta_grid, test_random.theor_data*kde_scale_3, 'LineWidth', line_width, 'Color', color_line); 
-hold(ax3, 'off');
-random_max = max([h_random_NS.Values, h_random_BOSS.Values, max(test_random.theor_data*kde_scale_3)]);
-text(ax3, -pi/2, random_max*1.4, sprintf('Target Random\nr_{circ, NS} = %.3f / r_{circ, BOSS} = %.3f', test_NS.random.ksd_corr(1), test_BOSS.random.ksd_corr(1)), ...
-            'HorizontalAlignment', 'center', ...
-            'FontSize', fontsize, 'FontWeight', 'bold');
+% Loop through each target
+for i = 1:length(target_configs)
+    field = target_configs(i).field;
+    
+    % Create polar axes
+    ax = polaraxes('Position', [target_configs(i).x_position, 0.05, 0.25, 0.85]);
+    hold(ax, 'on');
+    
+    % Plot histograms
+    h_NS = polarhistogram(ax, target_configs(i).NS_angles, 30, 'Normalization', 'pdf', ...
+        'FaceColor', color_NS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+    h_BOSS = polarhistogram(ax, target_configs(i).BOSS_angles, 30, 'Normalization', 'pdf', ...
+        'FaceColor', color_BOSS, 'FaceAlpha', alpha_hist, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+    
+    % Calculate KDE scale
+    kde_scale = max([h_NS.Values, h_BOSS.Values]) / max([test_NS.(field).ksd_estimate, test_BOSS.(field).ksd_estimate, eval(['test_' field '.theor_data'])]);
+    
+    % Plot KDE estimates
+    polarplot(ax, theta_grid, test_NS.(field).ksd_estimate * kde_scale, 'LineWidth', line_width, 'Color', color_NS);
+    polarplot(ax, theta_grid, test_BOSS.(field).ksd_estimate * kde_scale, 'LineWidth', line_width, 'Color', color_BOSS);
+    polarplot(ax, theta_grid, eval(['test_' field '.theor_data']) * kde_scale, 'LineWidth', line_width, 'Color', color_line);
+    
+    hold(ax, 'off');
+    
+    % Add text annotation
+    text(ax, -pi/2, target_configs(i).text_y_scale*1.2, ...
+        sprintf('%s',target_configs(i).label),'HorizontalAlignment', 'center', ...
+        'FontSize', fontsize, 'FontWeight', 'bold');
+    text(ax, -pi/2, target_configs(i).text_y_scale * 1.35, ...
+        sprintf('r_{circ, NS}=%.2f, r_{circ, BOSS}=%.3f\nOLC_{NS}=%.3f, OLC_{BOSS}=%.3f', ...
+            test_NS.(field).ksd_corr(1), test_BOSS.(field).ksd_corr(1), ...
+            test_NS.(field).ksd_ovl, test_BOSS.(field).ksd_ovl), ...
+        'HorizontalAlignment', 'center', ...
+        'FontSize', fontsize - 2);
+end
 
 sgtitle('KDE of Phase Distributions at Trigger Times', 'FontSize', fontsize + 4, 'FontWeight', 'bold');
 legend({'NS', 'BOSS', 'Theoretical'}, 'Location', [0.46, 0.85, 0.1, 0.03], 'Orientation', 'horizontal');

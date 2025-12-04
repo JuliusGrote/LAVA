@@ -16,18 +16,20 @@ This version is based on MATLAB adaptation of Phastimate by Joonas Laurinoja at 
 """
 
 import csv
-import subprocess
-from typing import Dict, List, Optional, Tuple, Union
+import os, subprocess
+import time
+import socket
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from scipy.signal import filtfilt, hilbert
 from scipy.io import loadmat
 from spectrum import aryule
 
-SUBJECT_ID = 'Sub-01' # increase iteravely for each subject
+SUBJECT_ID = 'sub-test' # increase iteravely for each subject
 
 
 # Load MATLAB coefficients directly as numpy array
-mat_data = loadmat('filter_coeffs.mat') # correct, matches BOSSDevice
+mat_data = loadmat('data/filter_coeffs.mat') # correct, matches BOSSDevice
 BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coeffs'].flatten()) # correct, matches BOSSDevice
 
 
@@ -39,7 +41,7 @@ REFERENCE_WEIGHT = 0.25
 # Phase estimation constants
 TARGET_PHASE_RADIANS = [np.pi, 0, 'random']  # Three phase targets: Trough (π), Peak (0), Random (from CSV)
 RANDOM_PHASES_CSV_PATH = 'data/random_phases.csv'  # Path to CSV file with random phase targets
-DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases
+DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases (pi/40)
 
 # Phastimate algorithm parameters (Zrenner et al. 2020)
 # Note: BOSSdevice firmware parameters are compiled in Simulink model (not accessible via API)
@@ -56,6 +58,8 @@ DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.05
 
 DEFAULT_BUFFER_SIZE_SECONDS = 0.5  # ?? 
 TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in s - correct (set here, can be adjusted for BOSS)
+MINIMUM_TRIGGER_DELAY_SECONDS = 0.005  # Minimum 5ms delay required for system to process and send trigger
+FIRST_ROUND_WAIT_SECONDS = 0.5  # Wait time before first UDP trigger to ensure system is ready
 
 # Set the Number of Trials per phase
 N_TRIALS_PER_PHASE = 200  # 200 trials per phase
@@ -93,7 +97,6 @@ class Decider:
         self.buffer_size_seconds = DEFAULT_BUFFER_SIZE_SECONDS
 
         # Convert timing parameters to samples
-        self.processing_interval_samples = int(self.processing_interval_seconds * sampling_frequency)
         self.buffer_size_samples = int(self.buffer_size_seconds * sampling_frequency)
         print(f"Buffer size in samples: {self.buffer_size_samples}")
 
@@ -122,25 +125,33 @@ class Decider:
         # Number of Trials per phase
         self.n_trials_per_phase = N_TRIALS_PER_PHASE
         self.n_phases = N_PHASES
+
         # Number of warm-up rounds to prevent first-call delays (see README.md for details)
         self.warm_up_rounds = 2
+
+        self.first_call = True  # Track first call for UDP trigger
+
+        # Warm-up time tracking (initialized when get_configuration is called)
+        self.warm_up_start_time = None
+        self.warm_up_duration = FIRST_ROUND_WAIT_SECONDS
 
         # Phase tracking
         self.current_phase_index = 0  # Track which phase we're currently on
         self.current_phase_trials = 0  # Track trials completed in current phase
         
         # Trigger cooldown tracking (2 seconds minimum between triggers)
-        self.last_trigger_time = None
         self.trigger_cooldown_seconds = TRIGGER_COOLDOWN_SECONDS
+
+        # Diagnostics for debugging trigger skips
+        self.last_phase_error = None
         
         # Load random phases from CSV file
         self.random_phases = self._load_random_phases(RANDOM_PHASES_CSV_PATH)
-        self.random_phase_index = 0  # Track current position in random phases list
 
 
         # Set initial target phase (handle random case)
         if self.target_phases[0] == 'random':
-            self.target_phase_radians = self.random_phases[self.random_phase_index]
+            self.target_phase_radians = self.random_phases[self.current_phase_trials]
         else:
             self.target_phase_radians = self.target_phases[0]
         
@@ -156,21 +167,26 @@ class Decider:
         Returns:
             Dictionary containing processing configuration parameters
         """
-        # Call MATLAB script on remote Windows PC
-        try:
-            subprocess.run([
-                'ssh', 'BNP Brown@192.168.1.100',  # Replace with actual IP
-                'matlab.exe', '-batch', '"run(\'C:\\path\\to\\script.m\'); exit;"'
-            ], capture_output=True, timeout=30)
-        except Exception as e:
-            print(f"Warning: Remote MATLAB call failed: {e}")
+        # Import time module for warm-up timing
         
+        # Start the warm-up timer when configuration is first requested
+        if self.warm_up_start_time is None:
+            self.warm_up_start_time = time.time()
+            print(f"Warm-up period started: {self.warm_up_duration} seconds")
+                
         return {
-            'processing_interval_in_samples': self.processing_interval_samples,
-            'process_on_trigger': False,
+            # Data configuration
             'sample_window': [-(self.buffer_size_samples - 1), 0],
-            'events': [],
-            'sensory_stimuli': [],
+            
+            # Periodic processing
+            'periodic_processing_enabled': True,
+            'periodic_processing_interval': self.processing_interval_seconds,
+            'pulse_lockout_duration': self.trigger_cooldown_seconds,
+
+            # Event system
+            'event_handlers': {
+                'pulse': self.handle_pulse,
+            },
         }
 
     def _load_random_phases(self, csv_path: str) -> np.ndarray:
@@ -226,19 +242,19 @@ class Decider:
         
         return phases_array
 
-    def process(self, current_time: float, timestamps: np.ndarray, valid_samples: np.ndarray, 
-                eeg_buffer: np.ndarray, emg_buffer: np.ndarray, current_sample_index: int, 
-                ready_for_trial: bool, is_trigger: bool, is_event: bool, event_type: str, is_coil_at_target: bool) -> Optional[Dict[str, float]]:
+    def process(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
+               eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
+               ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
         """
         Process the EEG data to estimate phase and schedule a trigger.
         
         Args:
-            current_time: Current timestamp
-            timestamps: Array of sample timestamps
+            reference_time: Current timestamp
+            time_offsets: Array of sample time offsets
             valid_samples: Boolean array indicating valid samples
             eeg_buffer: EEG data buffer (samples x channels)
             emg_buffer: EMG data buffer (unused)
-            current_sample_index: Current sample index
+            reference_index: Current sample index
             ready_for_trial: Whether the system is ready for a new trial
             is_trigger: Whether a trigger event occurred
             is_event: Whether an event occurred
@@ -247,6 +263,34 @@ class Decider:
         Returns:
             Dictionary with 'timed_trigger' key and execution time, or None if no trigger scheduled
         """
+        
+        # Check if warm-up period has elapsed
+        if self.warm_up_start_time is not None:
+            elapsed_time = time.time() - self.warm_up_start_time
+            if elapsed_time < self.warm_up_duration:
+                # Still in warm-up period, skip processing
+                return None
+            elif elapsed_time < self.warm_up_duration:
+                self.warm_up_start_time = None  # Clear warm-up timer
+                print("Warm-up period completed")
+
+        if self.first_call:
+        
+            # send UDP trigger
+            udp_host = os.environ.get('UDP_TRIGGER_HOST', '192.168.2.27')
+            udp_port = int(os.environ.get('UDP_TRIGGER_PORT', '5555'))
+            udp_msg = os.environ.get('UDP_TRIGGER_MESSAGE', 'phastimate_trigger')
+            try:
+                # Send UDP datagram
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.settimeout(1.0)
+                sock.sendto(udp_msg.encode('utf-8'), (udp_host, udp_port))
+                sock.close()
+                print(f"Sent UDP trigger to {udp_host}:{udp_port} msg='{udp_msg}'")
+            except Exception as e:
+                print(f"Warning: UDP trigger failed: {e}")
+            self.first_call = False
+        
         # Check if we need to advance to next phase
         if self.current_phase_trials >= self.n_trials_per_phase:
             self.current_phase_index += 1
@@ -258,7 +302,7 @@ class Decider:
                 self._save_logs(self.subject_id)
 
                 # Stop the session using ROS 2 service
-                print("\n---------------------------- Attempting to stop session via ROS service... ----------------------------\n")
+                print("\n--------------- Stopping session via ROS service... ---------------\n")
                 try:
                     result = subprocess.run(
                         ["ros2", "service", "call", "/system/session/stop", "system_interfaces/srv/StopSession"],
@@ -279,28 +323,19 @@ class Decider:
             print(f"\n=== Starting Phase {self.current_phase_index + 1}: {phase_names[self.current_phase_index]} ===")
             
             # Set target phase (handle random case)
-            if self.target_phases[self.current_phase_index] == 'random':
-                # For random phase, reset the index when starting random phase block
-                self.random_phase_index = 0
-                self.target_phase_radians = self.random_phases[self.random_phase_index]
-            else:
-                self.target_phase_radians = self.target_phases[self.current_phase_index]
+
+            self.target_phase_radians = self.target_phases[self.current_phase_index]
         
         # For random phase, use the next value from the loaded CSV
         if self.target_phases[self.current_phase_index] == 'random':
-            self.target_phase_radians = self.random_phases[self.random_phase_index]
-            self.random_phase_index += 1
-            print(f"Random phase target from CSV: {self.target_phase_radians:.4f} rad ({np.degrees(self.target_phase_radians):.2f}°)")
-        
-        # Check trigger cooldown - skip trial attempts during cooldown
-        if self.last_trigger_time is not None:
-            time_since_last_trigger = current_time - self.last_trigger_time
-            if time_since_last_trigger < self.trigger_cooldown_seconds:
-                # Don't even attempt processing during cooldown period
-                return None
-        
+            self.target_phase_radians = self.random_phases[self.current_phase_trials]
+
         # Early returns for invalid states
-        if not ready_for_trial or not np.all(valid_samples):
+        if not ready_for_trial:
+            print(f"DEBUG: Skipping - not ready_for_trial (trials completed: {self.current_phase_trials})")
+            return None
+        if not np.all(valid_samples):
+            print(f"DEBUG: Skipping - invalid samples detected")
             return None
 
         # Extract C3 channel with common average reference
@@ -314,34 +349,31 @@ class Decider:
         # Estimate future phases using Phastimate algorithm
         estimated_phases = self._estimate_phases(preprocessed_data)
         if estimated_phases is None:
+            print(f"DEBUG: Phase estimation failed (trial {self.current_phase_trials + 1})")
             return None
 
         # Find optimal trigger timing
-        trigger_timing = self._find_optimal_trigger_timing(estimated_phases, current_time)
-        
-        # Check trigger cooldown - prevent triggers within 2 seconds of last trigger
-        if trigger_timing is not None and self.last_trigger_time is not None:
-            time_between_triggers = trigger_timing['timed_trigger'] - self.last_trigger_time
-            if time_between_triggers < self.trigger_cooldown_seconds:
-                print(f"Cooldown violation: {time_between_triggers:.3f}s < {self.trigger_cooldown_seconds:.1f}s - trigger rejected")
-                trigger_timing = None
-        
-        # Update last trigger time if a trigger was scheduled
-        if trigger_timing is not None:
-            self.last_trigger_time = trigger_timing['timed_trigger']  # Use actual trigger execution time
+        trigger_timing = self._find_optimal_trigger_timing(estimated_phases, reference_time)
 
+        if trigger_timing is None:
+            return None
+                
         # log timestamp, trigger time, and phase
-        self.timestamp_log.append(current_time)
-        self.triggertimes_log.append(trigger_timing)
+        self.timestamp_log.append(reference_time)
+        self.triggertimes_log.append(trigger_timing['timed_trigger'])  # Save just the time value, not the dict
         self.phases_log.append(self.target_phase_radians)
         
-        # Update counters
+        # Update counters only for successful triggers
         self.current_phase_trials += 1
         self.trials_left -= 1
-        
+
         phase_names = ["Trough (π)", "Peak (0)", "Random (from CSV)"]
-        print(f"Phase {self.current_phase_index + 1} - Trial {self.current_phase_trials} "
-              f"(global: {self.n_trials_per_phase * self.n_phases - self.trials_left + 1})")
+        total_trials = self.n_trials_per_phase * self.n_phases
+        delivered_trials = total_trials - self.trials_left
+        print(
+            f"Delivered Trigger for Phase: {self.current_phase_index + 1} - Trial {self.current_phase_trials} "
+            f"(global: {delivered_trials}/{total_trials})", flush=True
+        )
 
         return trigger_timing
 
@@ -400,17 +432,20 @@ class Decider:
         
         return estimated_phases
 
-    def _find_optimal_trigger_timing(self, estimated_phases: np.ndarray, current_time: float) -> Optional[Dict[str, float]]:
+    def _find_optimal_trigger_timing(self, estimated_phases: np.ndarray, reference_time: float) -> Optional[Dict[str, float]]:
         """
         Find optimal trigger timing based on estimated phases.
         
         Args:
             estimated_phases: Array of estimated phase values
-            current_time: Current timestamp
+            reference_time: Current timestamp
             
         Returns:
             Dictionary with trigger timing or None if no suitable timing found
         """
+        # Reset diagnostics for this search
+        self.last_phase_error = None
+
         # Extract future phase estimates (second half of the estimation window)
         num_samples = estimated_phases.shape[0]
         future_phase_estimates = estimated_phases[num_samples // 2:]
@@ -424,17 +459,23 @@ class Decider:
         # Find the sample with minimum phase difference
         optimal_sample_index = np.argmin(np.abs(phase_differences))
         min_phase_difference = phase_differences[optimal_sample_index]
+        phase_error = np.abs(min_phase_difference)
+        self.last_phase_error = phase_error
 
         # Check if phase difference is within tolerance
-        if np.abs(min_phase_difference) > self.phase_tolerance:
-            print(f'Phase difference exceeds tolerance: {min_phase_difference:.3f} radians')
+        if phase_error > self.phase_tolerance:
             return None
 
         # Calculate trigger execution time
         time_offset_seconds = (optimal_sample_index * self.downsample_ratio) / self.sampling_frequency
-        execution_time = current_time + time_offset_seconds
+        
+        # Check if trigger delay is sufficient for system processing
+        if time_offset_seconds < MINIMUM_TRIGGER_DELAY_SECONDS:
+            return None
+        
+        execution_time = reference_time + time_offset_seconds
 
-        print(f'Trigger scheduled {time_offset_seconds:.3f} seconds from now')
+        print(f'Trigger scheduled {time_offset_seconds:.3f} seconds from now', flush=True)
 
         return {'timed_trigger': execution_time}
 
@@ -586,7 +627,9 @@ class Decider:
             writer = csv.writer(combined_file)
             writer.writerow(['Timestamp', 'TriggerTime', 'Phase'])
             for ts, tt, phase in zip(self.timestamp_log, self.triggertimes_log, self.phases_log):
-                writer.writerow([ts, tt, phase])
+                # Handle both dict format (old) and float format (new)
+                trigger_time = tt if isinstance(tt, (int, float)) else tt.get('timed_trigger', tt)
+                writer.writerow([ts, trigger_time, phase])
         
         # Also save individual files for backward compatibility
         with open(f'{path}/{filename_prefix}_timestamps.csv', 'w', newline='') as ts_file:
@@ -598,13 +641,26 @@ class Decider:
             writer = csv.writer(tt_file)
             writer.writerow(['TriggerTime'])
             for tt in self.triggertimes_log:
-                writer.writerow([tt])
+                # Handle both dict format (old) and float format (new)
+                trigger_time = tt if isinstance(tt, (int, float)) else tt.get('timed_trigger', tt)
+                writer.writerow([trigger_time])
         with open(f'{path}/{filename_prefix}_phases.csv', 'w', newline='') as phase_file:
             writer = csv.writer(phase_file)
             writer.writerow(['Phase'])
             for phase in self.phases_log:
                 writer.writerow([phase])
 
-        print(f'Logs saved for subject {filename_prefix} in {path}')
+        print(f'Logs saved for subject {filename_prefix} in {path}, with {len(self.timestamp_log)} entries.')
 
-test_decider = Decider(num_eeg_channels=64, num_emg_channels=0, sampling_frequency=5000.0)
+    # Dummy handlers for EEG triggers and pulses
+    def process_eeg_trigger(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
+                           eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
+                           ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
+        """Handle EEG trigger from the EEG device."""
+        return None
+
+    def handle_pulse(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
+                    eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
+                    ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
+        """Handle pulse event."""
+        return None
