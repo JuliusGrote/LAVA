@@ -1,1 +1,4 @@
 data/*
+
+# ignore local MATLAB/toolbox folders
+toolboxes/*
