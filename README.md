@@ -2,9 +2,9 @@
 The project aimes to compare the extrablished bossdevice closed-loop setup with the Neurosimo loop.
 
 ## Directories
-The 'code' folder hosts all scripts relevant for the running the acutal experiment. 'Data analysis' conversly hosts the matlab and python code to calculate and plot the statistcal outcome.
-It uses 'data' where all collecated data is stored as well as the random phases and filtercoefficients used by the scripts in 'code'.
-All graphics produced can be found in the 'figures' folder. All relevant plugins/toolboxes that deliver external functions are in 'toolboxes'. Statistical analysis results are stored in 'stats_results'.
+The 'code' folder hosts all scripts relevant for running the actual experiment. 'Data analysis' conversly hosts the matlab and python code to calculate and plot the statistical results.
+It uses 'data' where all collected data as well as the random phases and filter coefficients are stored which are used by the scripts in 'code'.
+The graphics produced can be found in the 'figures' folder. All relevant plugins/toolboxes that deliver external functions are in 'toolboxes'. Statistical analysis results are stored in 'stats_results'.
 
 ### Control PC location
 The LAVA on the control PC can be found on the desktop/LAVA folder. It only contains the bossdevice toolbox for the MATLAB API and UDP listener script. 
