@@ -1,10 +1,10 @@
 %% Read NeurOne raw EEG session
-data_load = '/home/lisa/projects/LAVA/data/sub-001/2025-12-02T162507';
-data_save = '/home/lisa/projects/LAVA/data';
-data_csv = '/home/lisa/projects/LAVA/data/random_phases.csv';
-fig_dir = '/home/lisa/projects/LAVA/figures/';
-
-addpath(genpath('/home/lisa/projects/LAVA/toolboxes'));
+data_load = '..\data\sub-001\2025-12-02T162507\';
+data_save = '..\data\';
+data_csv = '..\data\random_phases.csv';
+fig_dir = '..\figures\';
+stats_dir = '..\stat_results\';
+addpath(genpath('..\toolboxes\'));
 
 % Define colorblind-friendly palette (high contrast, distinct for all types of colorblindness)
 color_NS = [216/255, 90/255, 27/255];         % Orange #d85a1bff - distinguishable by all
@@ -20,7 +20,11 @@ end
 if ~exist(fig_dir, 'dir')
     mkdir(fig_dir)
 end
-current_participant_name = 'test'; 
+if ~exist(stats_dir, 'dir')
+    mkdir(stats_dir)
+end
+
+current_participant_name = 'sub-001'; 
 sessionPhaseNumber = 3; % default
 
 % load data
@@ -31,7 +35,9 @@ subject_data = module_read_neurone(...
 
 channel_labels = fieldnames(subject_data.signal)';
 channel_labels(end-1:end) = [];
-rs_EEG = [];
+num_channels = length(channel_labels);
+N = length(subject_data.signal.(channel_labels{1}).data);
+rs_EEG = zeros(N, num_channels);
 for i = 1:length(channel_labels)
     rs_EEG(:,i) = subject_data.signal.(channel_labels{i}).data;
 end
@@ -40,8 +46,8 @@ end
 EEG_data = eeg_emptyset();
 EEG_data.data = rs_EEG';
 EEG_data.srate = subject_data.properties.samplingRate;
-EEG_data.nbchan = size(rs_EEG', 1);
-EEG_data.pnts = size(rs_EEG', 2);
+EEG_data.nbchan = size(rs_EEG, 2);
+EEG_data.pnts = size(rs_EEG, 1);
 EEG_data.trials = 1;
 EEG_data.xmin = 0;
 EEG_data.xmax = (EEG_data.pnts - 1) / EEG_data.srate;
@@ -85,7 +91,6 @@ for i = 1:length(BOSS_Triggers.types)
             random_phase_idx = random_phase_idx + 1;
     end
 end
-
 
 % use the same trigger phases
 if any(BOSS_Triggers.phases) && length(BOSS_Triggers.times) == length(NS_Triggers.times)
@@ -181,7 +186,7 @@ corr_BOSS_NS = corrcoef(BOSS_mod_error, NS_mod_error);
 disp(["Correlation between NS and BOSS", corr_BOSS_NS(1,2)]);
 
 NS_times_sec = NS_Triggers.times / 1000; % convert ms to seconds
-BOSS_times_sec = BOSS_Triggers.times / 1000;
+BOSS_times_sec = BOSS_Triggers.times / 1000; 
 
 % get difference in timing per trial
 diff_trigger = BOSS_times_sec - NS_times_sec;
@@ -198,6 +203,17 @@ grouped_BOSS = splitapply(@(i) {BOSS_mod_error(i)}, idx', G);
 % Compute means directly from numeric vectors
 mean_NS_mod = cellfun(@(x) circ_mean(abs(x), [], 2), grouped_NS);
 mean_BOSS_mod = cellfun(@(x) circ_mean(abs(x), [], 2), grouped_BOSS);
+
+fprintf('Mean Error per Condition for NeuroSimo: %.4f (trough), %4.f (peak), %.4f (random)\n', mean_NS_mod(1), mean_NS_mod(2), mean_NS_mod(3));
+fprintf('Mean Error per Condition for bossdevice: %.4f (trough), %4.f (peak), %.4f (random)\n', mean_BOSS_mod(1), mean_BOSS_mod(2), mean_BOSS_mod(3));
+
+% Compute median 
+median_NS_mod = cellfun(@(x) circ_median(abs(x), 2), grouped_NS);
+median_BOSS_mod = cellfun(@(x) circ_median(abs(x), 2), grouped_BOSS);
+
+fprintf('Median Error per Condition for NeuroSimo: %.4f (trough), %4.f (peak), %.4f (random)\n', median_NS_mod(1), median_NS_mod(2), median_NS_mod(3));
+fprintf('Median Error per Condition for bossdevice: %.4f (trough), %4.f (peak), %.4f (random)\n', median_BOSS_mod(1), median_BOSS_mod(2), median_BOSS_mod(3));
+
 
 %% Statistical analysis
 
@@ -254,8 +270,6 @@ kappa_zero = max(1,(test_NS.zero.params(2) + test_BOSS.zero.params(2)) / 2); % A
 fprintf('\n(Averaged) kappa values for theoretical distributions:\n');
 fprintf('   Target pi: kappa = %.4f\n', kappa_pi);
 fprintf('   Target 0: kappa = %.4f\n', kappa_zero);
-
-
 
 
 test_pi.theor_data = circ_vmpdf(theta_grid, pi, kappa_pi)';       % Use averaged kappa for pi
@@ -763,80 +777,108 @@ saveas(gcf, fullfile(fig_dir, ['phase_distributions_kde_' current_participant_na
 
 %% Export statistical results
 
-% export mat
+% --- Add mean/median to stat_results and save mat ---
 stat_results = struct();
 stat_results.test_NS = test_NS;
 stat_results.test_BOSS = test_BOSS;
 stat_results.test_pi = test_pi;
 stat_results.test_zero = test_zero;
 stat_results.test_random = test_random;
-save(fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.mat']), 'stat_results');
-fprintf('Circular statistics results saved to %s\n', fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.mat']));
+stat_results.mean_NS_mod = mean_NS_mod;
+stat_results.mean_BOSS_mod = mean_BOSS_mod;
+stat_results.median_NS_mod = median_NS_mod;
+stat_results.median_BOSS_mod = median_BOSS_mod;
+save(fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.mat']), 'stat_results');
+fprintf('Circular statistics results saved to %s\n', fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.mat']));
 
-% export csv
-results_table = table({'NS Target π'; 'NS Target 0'; 'NS Target Random'; ...
-                       'BOSS Target π'; 'BOSS Target 0'; 'BOSS Target Random'}, ...
-                      [test_NS.pi.params(1); test_NS.zero.params(1); test_NS.random.params(1); ...
-                       test_BOSS.pi.params(1); test_BOSS.zero.params(1); test_BOSS.random.params(1)], ...
-                      [test_NS.pi.params(2); test_NS.zero.params(2); test_NS.random.params(2); ...
-                       test_BOSS.pi.params(2); test_BOSS.zero.params(2); test_BOSS.random.params(2)], ...
-                      [test_NS.pi.p_val.wu2_perm; test_NS.zero.p_val.wu2_perm; test_NS.random.p_val.wu2_perm; ...
-                       test_BOSS.pi.p_val.wu2_perm; test_BOSS.zero.p_val.wu2_perm; test_BOSS.random.p_val.wu2_perm], ...
-                      [test_NS.pi.p_val.rayleigh; test_NS.zero.p_val.rayleigh; test_NS.random.p_val.rayleigh; ...
-                       test_BOSS.pi.p_val.rayleigh; test_BOSS.zero.p_val.rayleigh; test_BOSS.random.p_val.rayleigh], ...
-                      [test_NS.pi.p_val.v_test; test_NS.zero.p_val.v_test; NaN; ...
-                       test_BOSS.pi.p_val.v_test; test_BOSS.zero.p_val.v_test; NaN], ...
-                      [test_pi.BOSS_NS.p_val; test_zero.BOSS_NS.p_val; test_random.BOSS_NS.p_val; ...
-                       NaN; NaN; NaN], ...
-                      [test_NS.pi.ksd_corr(1); test_NS.zero.ksd_corr(1); test_NS.random.ksd_corr(1); ...
-                       test_BOSS.pi.ksd_corr(1); test_BOSS.zero.ksd_corr(1); test_BOSS.random.ksd_corr(1)], ...
-                      [test_NS.pi.ksd_corr(2); test_NS.zero.ksd_corr(2); test_NS.random.ksd_corr(2); ...
-                       test_BOSS.pi.ksd_corr(2); test_BOSS.zero.ksd_corr(2); test_BOSS.random.ksd_corr(2)], ...
-                       [test_NS.pi.ksd_ovl; test_NS.zero.ksd_ovl; test_NS.random.ksd_ovl; ...
-                       test_BOSS.pi.ksd_ovl; test_BOSS.zero.ksd_ovl; test_BOSS.random.ksd_ovl], ...
-                      [test_pi.ksd_corr_NS_BOSS(1); test_zero.ksd_corr_NS_BOSS(1); test_random.ksd_corr_NS_BOSS(1); ...
-                       NaN; NaN; NaN], ...
-                      [test_pi.ksd_corr_NS_BOSS(2); test_zero.ksd_corr_NS_BOSS(2); test_random.ksd_corr_NS_BOSS(2); ...
-                       NaN; NaN; NaN], ...
+% --- Build results table including mean & median ---
+ConditionList = {'NS Target π'; 'NS Target 0'; 'NS Target Random'; ...
+                 'BOSS Target π'; 'BOSS Target 0'; 'BOSS Target Random'};
+
+MuVals = [test_NS.pi.params(1); test_NS.zero.params(1); test_NS.random.params(1); ...
+          test_BOSS.pi.params(1); test_BOSS.zero.params(1); test_BOSS.random.params(1)];
+
+KappaVals = [test_NS.pi.params(2); test_NS.zero.params(2); test_NS.random.params(2); ...
+             test_BOSS.pi.params(2); test_BOSS.zero.params(2); test_BOSS.random.params(2)];
+
+p_wu2 = [test_NS.pi.p_val.wu2_perm; test_NS.zero.p_val.wu2_perm; test_NS.random.p_val.wu2_perm; ...
+         test_BOSS.pi.p_val.wu2_perm; test_BOSS.zero.p_val.wu2_perm; test_BOSS.random.p_val.wu2_perm];
+
+p_ray = [test_NS.pi.p_val.rayleigh; test_NS.zero.p_val.rayleigh; test_NS.random.p_val.rayleigh; ...
+         test_BOSS.pi.p_val.rayleigh; test_BOSS.zero.p_val.rayleigh; test_BOSS.random.p_val.rayleigh];
+
+p_vtest = [test_NS.pi.p_val.v_test; test_NS.zero.p_val.v_test; NaN; ...
+           test_BOSS.pi.p_val.v_test; test_BOSS.zero.p_val.v_test; NaN];
+
+p_wu2_ns_vs_boss = [test_pi.BOSS_NS.p_val; test_zero.BOSS_NS.p_val; test_random.BOSS_NS.p_val; ...
+                    NaN; NaN; NaN];
+
+ksd_corr_r = [test_NS.pi.ksd_corr(1); test_NS.zero.ksd_corr(1); test_NS.random.ksd_corr(1); ...
+              test_BOSS.pi.ksd_corr(1); test_BOSS.zero.ksd_corr(1); test_BOSS.random.ksd_corr(1)];
+
+ksd_corr_p = [test_NS.pi.ksd_corr(2); test_NS.zero.ksd_corr(2); test_NS.random.ksd_corr(2); ...
+              test_BOSS.pi.ksd_corr(2); test_BOSS.zero.ksd_corr(2); test_BOSS.random.ksd_corr(2)];
+
+ksd_ovl = [test_NS.pi.ksd_ovl; test_NS.zero.ksd_ovl; test_NS.random.ksd_ovl; ...
+           test_BOSS.pi.ksd_ovl; test_BOSS.zero.ksd_ovl; test_BOSS.random.ksd_ovl];
+
+ksd_ns_boss_r = [test_pi.ksd_corr_NS_BOSS(1); test_zero.ksd_corr_NS_BOSS(1); test_random.ksd_corr_NS_BOSS(1); ...
+                 NaN; NaN; NaN];
+
+ksd_ns_boss_p = [test_pi.ksd_corr_NS_BOSS(2); test_zero.ksd_corr_NS_BOSS(2); test_random.ksd_corr_NS_BOSS(2); ...
+                 NaN; NaN; NaN];
+
+mean_error = [mean_NS_mod(:); mean_BOSS_mod(:)];    % 6×1
+median_error = [median_NS_mod(:); median_BOSS_mod(:)]; % 6×1
+
+results_table = table(ConditionList, MuVals, KappaVals, p_wu2, p_ray, p_vtest, p_wu2_ns_vs_boss, ...
+                      ksd_corr_r, ksd_corr_p, ksd_ovl, ksd_ns_boss_r, ksd_ns_boss_p, ...
+                      mean_error, median_error, ...
                       'VariableNames', {'Condition', 'Mu', 'Kappa', 'p_value_Watson_U2', 'p_value_Rayleigh', 'p_value_V_test', ...
-                                        'p_value_Watson_U2_NS_vs_BOSS','OVC_with_theor' 'KDE_corr_theor_r', 'KDE_corr_theor_p', ...
-                                        'KDE_corr_NS_BOSS_r', 'KDE_corr_NS_BOSS_p'});
+                                        'p_value_Watson_U2_NS_vs_BOSS', 'KDE_corr_theor_r', 'KDE_corr_theor_p', 'OVC_with_theor', ...
+                                        'KDE_corr_NS_BOSS_r', 'KDE_corr_NS_BOSS_p', 'Mean_Error_rad', 'Median_Error_rad'});
 
-writetable(results_table, fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.csv']));
-fprintf('Circular statistics results exported to %s\n', fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.csv']));
+writetable(results_table, fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.csv']));
+fprintf('Circular statistics results exported to %s\n', fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.csv']));
 
-%% Generate LaTeX table from the results
-latex_str = '\\begin{tabular}{|l|r|r|r|r|r|r|r|r|r|r|}\n\\hline\n';
-latex_str = [latex_str 'Condition & Mu & Kappa & p Watson U2 & p Rayleigh & p V test & p Watson U2 NS vs BOSS & KDE corr theor r & KDE corr theor p & KDE corr NS BOSS r & KDE corr NS BOSS p \\\\\n\\hline\n'];
+% --- Generate LaTeX table including mean & median columns ---
+latex_str = '\\begin{tabular}{|l|r|r|r|r|r|r|r|r|r|r|r|r|r|}\n\\hline\n';
+latex_str = [latex_str 'Condition & Mu & Kappa & p Watson U2 & p Rayleigh & p V test & p WU2 NSvsBOSS & KDE r & KDE p & OVL & KDE r NSvsBOSS & KDE p NSvsBOSS & MeanErr & MedianErr \\\\\n\\hline\n'];
 
-for i = 1:size(results_table, 1)
+
+T = results_table;                % or select the correct table element
+n = size(T,1);
+for i = 1:n
     row = results_table(i,:);
-    latex_str = [latex_str row.Condition{1} ' & ' sprintf('%.4f', row.Mu) ' & ' sprintf('%.4f', row.Kappa) ' & ' sprintf('%.4f', row.p_value_Watson_U2) ' & '];
+    latex_str = [latex_str sprintf('%s & %.4f & %.4f & %.4f & ', row.Condition{1}, row.Mu, row.Kappa, row.p_value_Watson_U2)];
     if isnan(row.p_value_Rayleigh)
         latex_str = [latex_str 'N/A & '];
     else
-        latex_str = [latex_str sprintf('%.4f', row.p_value_Rayleigh) ' & '];
+        latex_str = [latex_str sprintf('%.4f & ', row.p_value_Rayleigh)];
     end
     if isnan(row.p_value_V_test)
         latex_str = [latex_str 'N/A & '];
     else
-        latex_str = [latex_str sprintf('%.4f', row.p_value_V_test) ' & '];
+        latex_str = [latex_str sprintf('%.4f & ', row.p_value_V_test)];
     end
-    latex_str = [latex_str sprintf('%.4f', row.p_value_Watson_U2_NS_vs_BOSS) ' & ' sprintf('%.4f', row.KDE_corr_theor_r) ' & ' sprintf('%.6f', row.KDE_corr_theor_p) ' & '];
+    % remaining numeric columns
+    latex_str = [latex_str sprintf('%.4f & %.4f & %.6f & %.4f & %.4f & ', ...
+        row.p_value_Watson_U2_NS_vs_BOSS, row.KDE_corr_theor_r, row.KDE_corr_theor_p, row.OVC_with_theor)];
     if isnan(row.KDE_corr_NS_BOSS_r)
-        latex_str = [latex_str 'N/A & N/A \\\\\n'];
+        latex_str = [latex_str 'N/A & N/A & '];
     else
-        latex_str = [latex_str sprintf('%.4f', row.KDE_corr_NS_BOSS_r) ' & ' sprintf('%.6f', row.KDE_corr_NS_BOSS_p) ' \\\\\n'];
+        latex_str = [latex_str sprintf('%.4f & %.6f & ', row.KDE_corr_NS_BOSS_r, row.KDE_corr_NS_BOSS_p)];
     end
+    % mean & median
+    latex_str = [latex_str sprintf('%.4f & %.4f \\\\\n', row.Mean_Error_rad, row.Median_Error_rad)];
 end
 
 latex_str = [latex_str '\\hline\n\\end{tabular}'];
 
-% Save LaTeX table to file
-fid = fopen(fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.tex']), 'w');
+fid = fopen(fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.tex']), 'w');
 fprintf(fid, '%s\n', latex_str);
 fclose(fid);
-fprintf('LaTeX table saved to %s\n', fullfile(fig_dir, ['circular_statistics_results_' current_participant_name '.tex']));
+fprintf('LaTeX table saved to %s\n', fullfile(stats_dir, ['circular_statistics_results_' current_participant_name '.tex']));
 
 %% function definitions 
 function EEG_lap = prep_ds_dt_lap(EEG, hjorth, down_fs)
