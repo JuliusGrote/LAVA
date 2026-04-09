@@ -1,2 +1,4 @@
 data/sub*
 toolboxes/*
+.venv
+__pycache__
