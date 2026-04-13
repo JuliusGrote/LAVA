@@ -39,8 +39,7 @@ REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again
 REFERENCE_WEIGHT = 0.25 
 
 # Phase estimation constants
-TARGET_PHASE_RADIANS = [np.pi, 0, 'random']  # Three phase targets: Trough (π), Peak (0), Random (from CSV)
-RANDOM_PHASES_CSV_PATH = 'data/random_phases.csv'  # Path to CSV file with random phase targets
+PHASES_CSV_PATH = 'data/phase_schedule.csv'  # Path to CSV file with phase targets
 DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases (pi/40)
 
 # Phastimate algorithm parameters (Zrenner et al. 2020)
@@ -60,10 +59,6 @@ DEFAULT_BUFFER_SIZE_SECONDS = 0.719  # ??
 TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in s - correct (set here, can be adjusted for BOSS)
 MINIMUM_TRIGGER_DELAY_SECONDS = 0.005  # Minimum 5ms delay required for system to process and send trigger
 FIRST_ROUND_WAIT_SECONDS = 0.5  # Wait time before first UDP trigger to ensure system is ready
-
-# Set the Number of Trials per phase
-N_TRIALS_PER_PHASE = 200  # 200 trials per phase
-N_PHASES = 3  # Number of phase targets (π, 0, random)
 
 class Decider:
     """
@@ -104,11 +99,7 @@ class Decider:
         # Filter coefficients
         self.bandpass_filter_coefficients = BANDPASS_FILTER_COEFFICIENTS
 
-        # Phase targeting parameters
-        self.target_phases = TARGET_PHASE_RADIANS  # List of all phase targets
         self.phase_tolerance = DEFAULT_PHASE_TOLERANCE
-        
-        
         
         # Maximum number of future samples to consider for trigger scheduling
         self.max_future_samples = int(self.edge_samples / 2)
@@ -122,10 +113,6 @@ class Decider:
         self.triggertimes_log = []
         self.phases_log = []  # Track which phase was targeted
 
-        # Number of Trials per phase
-        self.n_trials_per_phase = N_TRIALS_PER_PHASE
-        self.n_phases = N_PHASES
-
         # Number of warm-up rounds to prevent first-call delays (see README.md for details)
         self.warm_up_rounds = 2
 
@@ -135,9 +122,8 @@ class Decider:
         self.warm_up_start_time = None
         self.warm_up_duration = FIRST_ROUND_WAIT_SECONDS
 
-        # Phase tracking
-        self.current_phase_index = 0  # Track which phase we're currently on
-        self.current_phase_trials = 0  # Track trials completed in current phase
+        # Trial tracking
+        self.current_trial_index = 0  # Track trials completed
         
         # Trigger cooldown tracking (2 seconds minimum between triggers)
         self.trigger_cooldown_seconds = TRIGGER_COOLDOWN_SECONDS
@@ -145,20 +131,14 @@ class Decider:
         # Diagnostics for debugging trigger skips
         self.last_phase_error = None
         
-        # Load random phases from CSV file
-        self.random_phases = self._load_random_phases(RANDOM_PHASES_CSV_PATH)
+        # Load phases from CSV file
+        self.phases = self._load_phases(PHASES_CSV_PATH)
 
-
-        # Set initial target phase (handle random case)
-        if self.target_phases[0] == 'random':
-            self.target_phase_radians = self.random_phases[self.current_phase_trials]
-        else:
-            self.target_phase_radians = self.target_phases[0]
+        self.target_phase_radians = self.phases[0]
         
-        # Total trials across all phases
-        total_trials = self.n_trials_per_phase * self.n_phases
-        self.trials_left = total_trials
-
+        # Total trials
+        self.total_trials = len(self.phases)
+        self.trials_left = self.total_trials
 
     def get_configuration(self) -> Dict[str, Union[int, bool, List]]:
         """
@@ -189,7 +169,7 @@ class Decider:
             },
         }
 
-    def _load_random_phases(self, csv_path: str) -> np.ndarray:
+    def _load_phases(self, csv_path: str) -> np.ndarray:
         """
         Load random phase targets from a CSV file.
         
@@ -200,46 +180,22 @@ class Decider:
             Array of random phase values
         """
         phases_array = None
-        generate_phases = False
+ 
         try:
             with open(csv_path, 'r') as f:
                 reader = csv.reader(f)
 
                 phases = [float(row[0]) for row in reader]
                 
-            if not phases:
-                print(f"Warning: No phases found in {csv_path}. Generating random phases.")
-                # Generate default random phases if file is empty
-                generate_phases = True
-            else:
-                phases_array = np.array(phases)
-                print(f"Loaded {len(phases_array)} random phase targets from {csv_path}")
-                
-                # Ensure we have enough phases for all trials
-            if len(phases_array) < self.n_trials_per_phase:
-                print(f"Warning: CSV has {len(phases_array)} phases but need {self.n_trials_per_phase}. Generating random phases.")
-                # Scrub old phases and generate new ones
-                generate_phases = True
+            phases_array = np.array(phases)
+            print(f"Loaded {len(phases_array)} phase targets from {csv_path}")
 
         except FileNotFoundError:
-            print(f"Warning: Random phases CSV file not found at {csv_path}. Generating random phases.")
-            generate_phases = True
+            print(f"Warning: Phases CSV file not found at {csv_path}. Generating default random phases.")
+  
         except Exception as e:
-            print(f"Error loading random phases from CSV: {e}. Generating random phases.")
-            generate_phases = True
-        
-        # Always save the phases array to ensure newly generated phases are saved
-        if generate_phases:
-            np.random.seed(42)  # For reproducibility
-            phases_array = np.random.uniform(-np.pi, np.pi, self.n_trials_per_phase)
-            print(f"Generated {len(phases_array)} random phase targets.")
-            save_path = csv_path
-            with open(save_path, 'w', newline='') as f:
-                writer = csv.writer(f)
-                for phase in phases_array:
-                    writer.writerow([phase])
-            print(f"Saved {len(phases_array)} phases to {save_path}")
-        
+            print(f"Error loading phases from CSV: {e}. Generating default random phases.")
+   
         return phases_array
 
     def process(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
@@ -291,48 +247,32 @@ class Decider:
                 print(f"Warning: UDP trigger failed: {e}")
             self.first_call = False
         
-        # Check if we need to advance to next phase
-        if self.current_phase_trials >= self.n_trials_per_phase:
-            self.current_phase_index += 1
-            self.current_phase_trials = 0
-            
-            if self.current_phase_index >= self.n_phases:
-                # All phases completed
-                print("\n=== All phases completed! ===")
-                self._save_logs(self.subject_id)
+        # Check if we need to advance to next phase or if we're done
+        if self.current_trial_index >= self.total_trials:
+            # All trials completed
+            print("\n=== All trials completed! ===")
+            self._save_logs(self.subject_id)
 
-                # Stop the session using ROS 2 service
-                print("\n--------------- Stopping session via ROS service... ---------------\n")
-                try:
-                    result = subprocess.run(
-                        ["ros2", "service", "call", "/system/session/stop", "system_interfaces/srv/StopSession"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                    if result.returncode == 0:
-                        print("Session stopped successfully!")
-                    else:
-                        print(f"Failed to stop session: {result.stderr}")
-                except Exception as e:
-                    print(f"Error stopping session: {e}")
-                return None
+            # Stop the session using ROS 2 service
+            print("\n--------------- Stopping session via ROS service... ---------------\n")
+            try:
+                result = subprocess.run(
+                    ["ros2", "service", "call", "/system/session/stop", "system_interfaces/srv/StopSession"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0:
+                    print("Session stopped successfully!")
+                else:
+                    print(f"Failed to stop session: {result.stderr}")
+            except Exception as e:
+                print(f"Error stopping session: {e}")
+            return None
             
-            # Update target phase for new phase
-            phase_names = ["Trough (π)", "Peak (0)", "Random (from CSV)"]
-            print(f"\n=== Starting Phase {self.current_phase_index + 1}: {phase_names[self.current_phase_index]} ===")
-            
-            # Set target phase (handle random case)
-
-            self.target_phase_radians = self.target_phases[self.current_phase_index]
-        
-        # For random phase, use the next value from the loaded CSV
-        if self.target_phases[self.current_phase_index] == 'random':
-            self.target_phase_radians = self.random_phases[self.current_phase_trials]
-
         # Early returns for invalid states
         if not ready_for_trial:
-            print(f"DEBUG: Skipping - not ready_for_trial (trials completed: {self.current_phase_trials})")
+            print(f"DEBUG: Skipping - not ready_for_trial (trials completed: {self.current_trial_index})")
             return None
         if not np.all(valid_samples):
             print(f"DEBUG: Skipping - invalid samples detected")
@@ -343,13 +283,17 @@ class Decider:
         if c3_referenced_data is None:
             return None
 
+        # Update target phase from the schedule
+        if self.current_trial_index < self.total_trials:
+            self.target_phase_radians = self.phases[self.current_trial_index]
+
         # Preprocess the data
         preprocessed_data = self._preprocess_eeg_data(c3_referenced_data)
 
         # Estimate future phases using Phastimate algorithm
         estimated_phases = self._estimate_phases(preprocessed_data)
         if estimated_phases is None:
-            print(f"DEBUG: Phase estimation failed (trial {self.current_phase_trials + 1})")
+            print(f"DEBUG: Phase estimation failed (trial {self.current_trial_index + 1})")
             return None
 
         # Find optimal trigger timing
@@ -364,15 +308,11 @@ class Decider:
         self.phases_log.append(self.target_phase_radians)
         
         # Update counters only for successful triggers
-        self.current_phase_trials += 1
-        self.trials_left -= 1
-
-        phase_names = ["Trough (π)", "Peak (0)", "Random (from CSV)"]
-        total_trials = self.n_trials_per_phase * self.n_phases
-        delivered_trials = total_trials - self.trials_left
+        self.current_trial_index += 1
+        
         print(
-            f"Delivered Trigger for Phase: {self.current_phase_index + 1} - Trial {self.current_phase_trials} "
-            f"(global: {delivered_trials}/{total_trials})", flush=True
+            f"Delivered Trigger for Trial {self.current_trial_index + 1}/{self.total_trials} "
+            f"(Phase target: {self.target_phase_radians:.2f} rad)", flush=True
         )
 
         return trigger_timing
