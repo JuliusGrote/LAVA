@@ -32,7 +32,6 @@ subject_data = module_read_neurone(...
         fullfile(data_load, current_participant_name), ...
         sessionPhaseNumber = sessionPhaseNumber);
 
-
 channel_labels = fieldnames(subject_data.signal)';
 channel_labels(end-1:end) = [];
 num_channels = length(channel_labels);
@@ -41,6 +40,7 @@ rs_EEG = zeros(N, num_channels);
 for i = 1:length(channel_labels)
     rs_EEG(:,i) = subject_data.signal.(channel_labels{i}).data;
 end
+
 
 %% Create EEGlab-compatible structure
 EEG_data = eeg_emptyset();
@@ -59,8 +59,8 @@ for i = 1:length(channel_labels)
 end
 
 % Save data
-save([data_save 'LAVA_EEG_rs_' current_participant_name '.mat'], "EEG_data", '-v7.3')
-
+EEG = eeg_checkset(EEG_data);  % optional sanity check
+pop_saveset(EEG, 'filename', [current_participant_name, '.set'], 'filepath', [data_save, '\', current_participant_name]);
 %% Collect all markers
 % Extract all marker information from subject_data
 triggers = subject_data.markers;
@@ -419,6 +419,7 @@ eeg_signal = EEG.data; % Use channel 1, or change as needed
 window = hann(4*fs); % 4-second window
 noverlap = length(window) - 10;
 nfft = max(2^nextpow2(length(eeg_signal)), 1024);
+disp(['Using nfft = ', num2str(nfft), ' with signal length = ', num2str(length(eeg_signal)), ' and window length = ', num2str(length(window))]);
 
 [pxx, f] = pwelch(eeg_signal, window, noverlap, nfft, fs);
 
