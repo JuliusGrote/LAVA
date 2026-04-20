@@ -14,7 +14,7 @@ sess_id = 3
 data_load = "../data/sub-001/2025-12-02T162507/"
 data_save = "../data/"
 rs_file = f"../data/{sub_id}/{sub_id}.set"
-coeffs_path =f"../data/{sub_id}_bpfilter.mat"
+coeffs_path = f"../data/{sub_id}_bpfilter.mat"
 dec = 10
 
 # %%
@@ -43,8 +43,8 @@ center = "C3"
 neighbors = ["FC3", "CP3", "C1", "C5"] 
 
 # get the data
-c3 = pre_rs.get_data(picks=center)[::dec, :]
-surround = pre_rs.get_data(picks=neighbors)[::dec, :]
+c3 = pre_rs.get_data(picks=center)[:, ::dec]
+surround = pre_rs.get_data(picks=neighbors)[:, ::dec]
 
 c3_hjorth = c3 - surround.mean(axis=0, keepdims=True)
 
@@ -61,7 +61,7 @@ peak = [periodic_params[index][0] for index, param in enumerate(periodic_params)
 lower, upper = peak - 1, peak + 1
 #upper, lower,  = compute_peak_bands(periodic_params, [[8, 12, 0]])
 
-# design FIR filter and retreive coefficients
+# design FIR filter and retrieve coefficients
 fs = raw_c3_hjorth.info["sfreq"]
 numtaps = 192+1  # Filter order (according to Zrenner et al. 2020) + 1 (must be odd for bandpass)
 coefficients = firwin(numtaps, [lower, upper], fs=fs, pass_zero='bandpass')
