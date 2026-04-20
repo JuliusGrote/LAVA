@@ -25,7 +25,7 @@ from scipy.signal import filtfilt, hilbert
 from scipy.io import loadmat
 from spectrum import aryule
 
-SUBJECT_ID = 'sub-test' # increase iteravely for each subject
+SUBJECT_ID = 'test' # increase iteravely for each subject
 
 
 # Load MATLAB coefficients directly as numpy array
@@ -181,20 +181,13 @@ class Decider:
         """
         phases_array = None
  
-        try:
-            with open(csv_path, 'r') as f:
-                reader = csv.reader(f)
+        with open(csv_path, 'r') as f:
+            reader = csv.reader(f)
 
-                phases = [float(row[0]) for row in reader]
+            phases = [float(row[0]) for row in reader]
                 
-            phases_array = np.array(phases)
-            print(f"Loaded {len(phases_array)} phase targets from {csv_path}")
-
-        except FileNotFoundError:
-            print(f"Warning: Phases CSV file not found at {csv_path}. Generating default random phases.")
-  
-        except Exception as e:
-            print(f"Error loading phases from CSV: {e}. Generating default random phases.")
+        phases_array = np.array(phases)
+        print(f"Loaded {len(phases_array)} phase targets from {csv_path}")
    
         return phases_array
 
@@ -246,30 +239,7 @@ class Decider:
             except Exception as e:
                 print(f"Warning: UDP trigger failed: {e}")
             self.first_call = False
-        
-        # Check if we need to advance to next phase or if we're done
-        if self.current_trial_index >= self.total_trials:
-            # All trials completed
-            print("\n=== All trials completed! ===")
-            self._save_logs(self.subject_id)
-
-            # Stop the session using ROS 2 service
-            print("\n--------------- Stopping session via ROS service... ---------------\n")
-            try:
-                result = subprocess.run(
-                    ["ros2", "service", "call", "/system/session/stop", "system_interfaces/srv/StopSession"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if result.returncode == 0:
-                    print("Session stopped successfully!")
-                else:
-                    print(f"Failed to stop session: {result.stderr}")
-            except Exception as e:
-                print(f"Error stopping session: {e}")
-            return None
-            
+                   
         # Early returns for invalid states
         if not ready_for_trial:
             print(f"DEBUG: Skipping - not ready_for_trial (trials completed: {self.current_trial_index})")
@@ -316,6 +286,10 @@ class Decider:
         )
 
         return trigger_timing
+    
+    def __del__(self):
+        print("\n=== Session finished — saving logs ===")
+        self._save_logs(self.subject_id)
 
     def _extract_c3_referenced_data(self, eeg_buffer: np.ndarray) -> Optional[np.ndarray]:
         """
