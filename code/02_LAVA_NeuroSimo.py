@@ -25,12 +25,12 @@ from scipy.signal import filtfilt, hilbert
 from scipy.io import loadmat
 from spectrum import aryule
 
-SUBJECT_ID = 'test' # increase iteravely for each subject
+SUBJECT_ID = 'test' 
 
 
 # Load MATLAB coefficients directly as numpy array
-mat_data = loadmat('data/filter_coeffs.mat') # correct, matches BOSSDevice
-BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coeffs'].flatten()) # correct, matches BOSSDevice
+mat_data = loadmat(f'data/{SUBJECT_ID}_bpfilter.mat') # redo logic to match new __init__
+BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coefficients'].flatten()) # correct, matches BOSSDevice
 
 
 # EEG channel indices for C3 referencing matches BOSSDevice
@@ -68,17 +68,18 @@ class Decider:
     of EEG signals and schedules triggers based on target phase detection.
     """
     
-    def __init__(self, num_eeg_channels: int, num_emg_channels: int, sampling_frequency: float):
+    def __init__(self, subject_id: str, num_eeg_channels: int, num_emg_channels: int, sampling_frequency: int):
         """
         Initialize the Decider with parameters and filter design.
         
         Args:
+            subject_id: ID of the subject
             num_eeg_channels: Number of EEG channels (unused but kept for interface compatibility)
             num_emg_channels: Number of EMG channels (unused but kept for interface compatibility)
             sampling_frequency: Sampling frequency in Hz
         """
 
-        self.subject_id = SUBJECT_ID
+        self.subject_id = subject_id
         self.sampling_frequency = sampling_frequency
 
         # Phastimate algorithm parameters
@@ -90,11 +91,6 @@ class Decider:
         # Processing timing parameters
         self.processing_interval_seconds = DEFAULT_PROCESSING_INTERVAL_SECONDS
         self.buffer_size_seconds = DEFAULT_BUFFER_SIZE_SECONDS
-
-        # Convert timing parameters to samples
-        self.buffer_size_samples = int(self.buffer_size_seconds * sampling_frequency)
-        print(f"Buffer size in samples: {self.buffer_size_samples}")
-
 
         # Filter coefficients
         self.bandpass_filter_coefficients = BANDPASS_FILTER_COEFFICIENTS
@@ -122,9 +118,7 @@ class Decider:
         self.warm_up_start_time = None
         self.warm_up_duration = FIRST_ROUND_WAIT_SECONDS
 
-        # Trial tracking
-        self.current_trial_index = 0  # Track trials completed
-        
+                
         # Trigger cooldown tracking (2 seconds minimum between triggers)
         self.trigger_cooldown_seconds = TRIGGER_COOLDOWN_SECONDS
 
@@ -140,7 +134,7 @@ class Decider:
         self.total_trials = len(self.phases)
         self.trials_left = self.total_trials
 
-    def get_configuration(self) -> Dict[str, Union[int, bool, List]]:
+    def get_configuration(self) -> dict[str, Any]:
         """
         Return the configuration for the processing interval and sample window.
         
@@ -156,18 +150,15 @@ class Decider:
                 
         return {
             # Data configuration
-            'sample_window': [-(self.buffer_size_samples - 1), 0],
-            
+            'sample_window': [-self.buffer_size_seconds, 0],
+            'warm_up_rounds': 0,  # Number of warm-up rounds to perform (0 to disable)
+
             # Periodic processing
             'periodic_processing_enabled': True,
             'periodic_processing_interval': self.processing_interval_seconds,
             'pulse_lockout_duration': self.trigger_cooldown_seconds,
-
-            # Event system
-            'event_handlers': {
-                'pulse': self.handle_pulse,
-            },
         }
+
 
     def _load_phases(self, csv_path: str) -> np.ndarray:
         """
@@ -191,26 +182,12 @@ class Decider:
    
         return phases_array
 
-    def process(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
-               eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
-               ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
+    def process_periodic(
+            self, reference_time: float, reference_index: int, time_offsets: np.ndarray,
+            eeg_buffer: np.ndarray, emg_buffer: np.ndarray,
+            is_coil_at_target: bool, stage_name: str, pulse_count: int, is_warm_up: bool) -> dict[str, Any] | None:
         """
         Process the EEG data to estimate phase and schedule a trigger.
-        
-        Args:
-            reference_time: Current timestamp
-            time_offsets: Array of sample time offsets
-            valid_samples: Boolean array indicating valid samples
-            eeg_buffer: EEG data buffer (samples x channels)
-            emg_buffer: EMG data buffer (unused)
-            reference_index: Current sample index
-            ready_for_trial: Whether the system is ready for a new trial
-            is_trigger: Whether a trigger event occurred
-            is_event: Whether an event occurred
-            event_type: Type of event
-            
-        Returns:
-            Dictionary with 'timed_trigger' key and execution time, or None if no trigger scheduled
         """
         
         # Check if warm-up period has elapsed
@@ -240,22 +217,13 @@ class Decider:
                 print(f"Warning: UDP trigger failed: {e}")
             self.first_call = False
                    
-        # Early returns for invalid states
-        if not ready_for_trial:
-            print(f"DEBUG: Skipping - not ready_for_trial (trials completed: {self.current_trial_index})")
-            return None
-        if not np.all(valid_samples):
-            print(f"DEBUG: Skipping - invalid samples detected")
-            return None
-
         # Extract C3 channel with common average reference
         c3_referenced_data = self._extract_c3_referenced_data(eeg_buffer)
         if c3_referenced_data is None:
             return None
 
         # Update target phase from the schedule
-        if self.current_trial_index < self.total_trials:
-            self.target_phase_radians = self.phases[self.current_trial_index]
+        self.target_phase_radians = self.phases[pulse_count]
 
         # Preprocess the data
         preprocessed_data = self._preprocess_eeg_data(c3_referenced_data)
@@ -263,7 +231,7 @@ class Decider:
         # Estimate future phases using Phastimate algorithm
         estimated_phases = self._estimate_phases(preprocessed_data)
         if estimated_phases is None:
-            print(f"DEBUG: Phase estimation failed (trial {self.current_trial_index + 1})")
+            print(f"DEBUG: Phase estimation failed (trial {pulse_count + 1})")
             return None
 
         # Find optimal trigger timing
@@ -274,14 +242,14 @@ class Decider:
                 
         # log timestamp, trigger time, and phase
         self.timestamp_log.append(reference_time)
-        self.triggertimes_log.append(trigger_timing['timed_trigger'])  # Save just the time value, not the dict
+
+        absolute_trigger_time = reference_time + trigger_timing['trigger_offset']
+        self.triggertimes_log.append(absolute_trigger_time)  # Save just the time value, not the dict
         self.phases_log.append(self.target_phase_radians)
         
-        # Update counters only for successful triggers
-        self.current_trial_index += 1
         
         print(
-            f"Delivered Trigger for Trial {self.current_trial_index + 1}/{self.total_trials} "
+            f"Delivered Trigger for Trial {pulse_count + 1}/{self.total_trials} "
             f"(Phase target: {self.target_phase_radians:.2f} rad)", flush=True
         )
 
@@ -346,7 +314,7 @@ class Decider:
         
         return estimated_phases
 
-    def _find_optimal_trigger_timing(self, estimated_phases: np.ndarray, reference_time: float) -> Optional[Dict[str, float]]:
+    def _find_optimal_trigger_timing(self, estimated_phases: np.ndarray, reference_time: float) -> Optional[Dict[str, Any]]:
         """
         Find optimal trigger timing based on estimated phases.
         
@@ -387,11 +355,11 @@ class Decider:
         if time_offset_seconds < MINIMUM_TRIGGER_DELAY_SECONDS:
             return None
         
-        execution_time = reference_time + time_offset_seconds
-
         print(f'Trigger scheduled {time_offset_seconds:.3f} seconds from now', flush=True)
 
-        return {'timed_trigger': execution_time}
+        return {
+            'trigger_offset': time_offset_seconds,
+        }
 
     def phastimate(self, data: np.ndarray, filter_b: np.ndarray, filter_a: List[float], 
                    edge_samples: int, ar_order: int, hilbert_window_size: int,
@@ -541,40 +509,6 @@ class Decider:
             writer = csv.writer(combined_file)
             writer.writerow(['Timestamp', 'TriggerTime', 'Phase'])
             for ts, tt, phase in zip(self.timestamp_log, self.triggertimes_log, self.phases_log):
-                # Handle both dict format (old) and float format (new)
-                trigger_time = tt if isinstance(tt, (int, float)) else tt.get('timed_trigger', tt)
-                writer.writerow([ts, trigger_time, phase])
-        
-        # Also save individual files for backward compatibility
-        with open(f'{path}/{filename_prefix}_timestamps.csv', 'w', newline='') as ts_file:
-            writer = csv.writer(ts_file)
-            writer.writerow(['Timestamp'])
-            for ts in self.timestamp_log:
-                writer.writerow([ts])
-        with open(f'{path}/{filename_prefix}_triggertimes.csv', 'w', newline='') as tt_file:
-            writer = csv.writer(tt_file)
-            writer.writerow(['TriggerTime'])
-            for tt in self.triggertimes_log:
-                # Handle both dict format (old) and float format (new)
-                trigger_time = tt if isinstance(tt, (int, float)) else tt.get('timed_trigger', tt)
-                writer.writerow([trigger_time])
-        with open(f'{path}/{filename_prefix}_phases.csv', 'w', newline='') as phase_file:
-            writer = csv.writer(phase_file)
-            writer.writerow(['Phase'])
-            for phase in self.phases_log:
-                writer.writerow([phase])
+                writer.writerow([ts, tt, phase])
 
         print(f'Logs saved for subject {filename_prefix} in {path}, with {len(self.timestamp_log)} entries.')
-
-    # Dummy handlers for EEG triggers and pulses
-    def process_eeg_trigger(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
-                           eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
-                           ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
-        """Handle EEG trigger from the EEG device."""
-        return None
-
-    def handle_pulse(self, reference_time: float, reference_index: int, time_offsets: np.ndarray, 
-                    eeg_buffer: np.ndarray, emg_buffer: np.ndarray, valid_samples: np.ndarray, 
-                    ready_for_trial: bool, is_coil_at_target: bool) -> Optional[Dict[str, Any]]:
-        """Handle pulse event."""
-        return None
