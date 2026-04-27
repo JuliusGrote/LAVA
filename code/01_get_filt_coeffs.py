@@ -5,11 +5,17 @@ from pathlib import Path
 import mne
 from scipy.signal import firwin
 from scipy.io import savemat
-from spectrum_analysis import parameterize_spectrum
+from spectrum_analysis import parameterize_spectrum, compute_peak_bands
+import numpy as np
+
 
 sub_id = "sub-001"
-sess_id = 3
-data_load = fr"C:\ProgramData\Bittium Biosignals Ltd\NeurOne64\SessionData\NeurOneUser\LAVA_{sub_id[-3:]}\2025-12-02T162507"
+sess_id = 1
+sess_root = Path(fr"C:\ProgramData\Bittium Biosignals Ltd\NeurOne64\SessionData\NeurOneUser\LAVA_{sub_id[-3:]}")
+latest_session = max((path for path in sess_root.iterdir() if path.is_dir()), key=lambda path: path.stat().st_mtime, default=None)
+
+data_load = str(latest_session)
+
 print(f"data_load: {data_load}")
 script_dir = Path(__file__).resolve().parent
 repo_root = script_dir.parent
@@ -62,24 +68,34 @@ center = "C3"
 neighbors = ["FC3", "CP3", "C1", "C5"] 
 
 # get the data
-c3 = pre_rs.get_data(picks=center)[:, ::dec]
-surround = pre_rs.get_data(picks=neighbors)[:, ::dec]
+c3 = pre_rs.get_data(picks=center)
+surround = pre_rs.get_data(picks=neighbors)
 
 c3_hjorth = c3 - surround.mean(axis=0, keepdims=True)
 
 # create a new Raw object for the virtual channel
-info = mne.create_info(ch_names=["C3_Hjorth"], sfreq=pre_rs.info["sfreq"]/dec, ch_types=["eeg"])
-raw_c3_hjorth = mne.io.RawArray(c3_hjorth, info)
-  # Decimate to 500Hz (matches BOSSDevice)
-spectrum = raw_c3_hjorth.compute_psd()
-psd, freqs = spectrum.get_data(return_freqs=True)
+info = mne.create_info(ch_names=["C3_Hjorth"], sfreq=pre_rs.info["sfreq"], ch_types=["eeg"])
+raw_c3_hjorth = mne.io.RawArray(c3_hjorth, info).filter(1, 60, fir_design='firwin')
 
-periodic_params, aperiodic_params = parameterize_spectrum([freqs, psd[0,:]], save_fig=repo_root / "figures" / f"{sub_id}_psd.png")
+raw_c3_hjorth.resample(pre_rs.info["sfreq"] / dec)
+
+spectrum = raw_c3_hjorth.compute_psd(fmin=1, fmax=60)
+
+freqs = spectrum.freqs
+psd = spectrum.get_data()
+
+periodic_params, aperiodic_params = parameterize_spectrum([freqs, psd[0,:]], save_fig=repo_root / "figures" / f"{sub_id}_psd.png", fmax=60)
 # compute peak bands
-peak = [periodic_params[index][0] for index, param in enumerate(periodic_params) if param[0] < 12 and param[0] > 8][0]
-lower, upper = peak - 1, peak + 1
-#upper, lower,  = compute_peak_bands(periodic_params, [[8, 12, 0]])
+peak_index = np.argmax([periodic_params[index][1] for index, param in enumerate(periodic_params) if param[0] < 12 and param[0] > 8])
 
+peak = periodic_params[peak_index][0]
+print(f"peak: {peak}")
+# lower, upper = peak - 1, peak + 1
+upper, lower, _ = compute_peak_bands(periodic_params, [[8, 12, 0]])
+
+upper, lower = upper[0], lower[0]
+
+print(f"upper, lower: {upper}, {lower}")
 # design FIR filter and retrieve coefficients
 fs = raw_c3_hjorth.info["sfreq"]
 numtaps = 80+1  # Filter order (according to Zrenner et al. 2020) + 1 (must be odd for bandpass)
@@ -91,4 +107,8 @@ coefficients = firwin(numtaps, [lower, upper], fs=fs, pass_zero='bandpass')
 # save coefficients to .mat file
 savemat(str(coeffs_path), {'coefficients': coefficients})
 
+# run git push to sync with remote repository
+subprocess.run(["git", "add", "*"], cwd=str(repo_root))
+subprocess.run(["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"], cwd=str(repo_root))
+subprocess.run(["git", "push"], cwd=str(repo_root))
 
