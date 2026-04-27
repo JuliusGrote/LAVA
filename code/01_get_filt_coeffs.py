@@ -7,25 +7,32 @@ from scipy.signal import firwin
 from scipy.io import savemat
 from spectrum_analysis import parameterize_spectrum, compute_peak_bands
 import numpy as np
+from json import load, dump
 
+with open("code\\settings.json", "r") as f:
+    settings = load(f)
 
-sub_id = "sub-001"
-sess_id = 1
-sess_root = Path(fr"C:\ProgramData\Bittium Biosignals Ltd\NeurOne64\SessionData\NeurOneUser\LAVA_{sub_id[-3:]}")
+sub_id = settings["sub_id"]
+sess_id = settings["sess_id"]
+data_root = Path(settings["data_root"])
+sess_root = data_root / f"LAVA_{sub_id[-3:]}"
 latest_session = max((path for path in sess_root.iterdir() if path.is_dir()), key=lambda path: path.stat().st_mtime, default=None)
-
 data_load = str(latest_session)
 
-print(f"data_load: {data_load}")
 script_dir = Path(__file__).resolve().parent
 repo_root = script_dir.parent
-data_save = repo_root / "data"
+data_save = Path(settings["data_save"])
 subject_dir = data_save / sub_id
 rs_file = subject_dir / f"{sub_id}.set"
 coeffs_path = data_save / f"bpfilter_{sub_id}.mat"
 dec = 10
 print(f"root: {repo_root}")
 subject_dir.mkdir(parents=True, exist_ok=True)
+
+# save new paths into settings.json for use in MATLAB
+settings["coeffs_path"] = str(coeffs_path)
+with open("settings.json", "w") as f:
+    dump(settings, f, indent=4)
 
 # %%
 matlab_cmd = (

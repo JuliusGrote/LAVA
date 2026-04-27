@@ -2,6 +2,9 @@
 delete(instrfindall)
 clc;clear;
 
+% Load settings from JSON file
+settings = jsondecode(fileread('C:\Users\Eric James McDermott\Desktop\LAVA_GitHub\code\settings.json'));
+
 %% Initialize BOSS device and spatial filter
 bd = bossdevice;
 pause(1);
@@ -19,7 +22,7 @@ bd.num_eeg_channels = 64;
 spf = zeros(64,1);
 spf([5 21 23 25 27]) = [1 -0.25 -0.25 -0.25 -0.25];
 bd.spatial_filter_weights = spf;
-coeffs = load('data/filter_coeffs.mat', 'coeffs').coeffs;
+coeffs = load([settings.data_save '\bpfilter_' settings.sub_id '.mat'], 'coefficients').coefficients;
 bd.alpha.bpf_fir_coeffs = coeffs;
 
 bd.alpha.offset_samples = 2;    % 2 seems appropriate
@@ -36,7 +39,7 @@ bd.min_inter_trig_interval = 2;
 %% Prepare trigger loop 
 
 % load the random phase values from csv file
-phase_targets = readtable('data/phase_schedule.csv');
+phase_targets = readtable([settings.data_save '\phase_schedule.csv']);
 
 % get length of random phase array
 n_trials = height(phase_targets);
@@ -58,7 +61,6 @@ matlab_udp_listener(5555);
 % Configure phase trials
 bd.triggers_remaining = n_trials; % reset trigger count
 triggers_before = bd.triggers_remaining;
-fprintf('Switching to phase 3: Random Phase.\n');
 
 random_phase_value = phase_targets.Var1(n_trials - bd.triggers_remaining + 1, 1);
 bd.alpha.phase_target(1) = random_phase_value(1, 1);
@@ -88,7 +90,7 @@ while(bd.triggers_remaining > 0)
 end
 
 bd.disarm;
-fprintf('All phases complete. Stopping BOSS device.\n');
+fprintf('All trials complete. Stopping BOSS device.\n');
 
 %% End experiment
 bd.stop;
