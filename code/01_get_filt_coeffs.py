@@ -22,7 +22,7 @@ repo_root = script_dir.parent
 data_save = repo_root / "data"
 subject_dir = data_save / sub_id
 rs_file = subject_dir / f"{sub_id}.set"
-coeffs_path = data_save / f"{sub_id}_bpfilter.mat"
+coeffs_path = data_save / f"bpfilter_{sub_id}.mat"
 dec = 10
 print(f"root: {repo_root}")
 subject_dir.mkdir(parents=True, exist_ok=True)
