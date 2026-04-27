@@ -25,13 +25,6 @@ from scipy.signal import filtfilt, hilbert
 from scipy.io import loadmat
 from spectrum import aryule
 
-SUBJECT_ID = 'test' 
-
-
-# Load MATLAB coefficients directly as numpy array
-mat_data = loadmat(f'data/{SUBJECT_ID}_bpfilter.mat') # redo logic to match new __init__
-BANDPASS_FILTER_COEFFICIENTS = np.array(mat_data['coefficients'].flatten()) # correct, matches BOSSDevice
-
 
 # EEG channel indices for C3 referencing matches BOSSDevice
 C3_CHANNEL_INDEX = 4 # add 1 to convert to MATLAB (1-based)
@@ -80,6 +73,11 @@ class Decider:
         """
 
         self.subject_id = subject_id
+
+        mat_data = loadmat(f'data/{self.subject_id}_bpfilter.mat')
+
+        self.bandpass_filter_coefficients = np.array(mat_data['coefficients'].flatten()) # correct, matches BOSSDevice
+
         self.sampling_frequency = sampling_frequency
 
         # Phastimate algorithm parameters
@@ -92,8 +90,7 @@ class Decider:
         self.processing_interval_seconds = DEFAULT_PROCESSING_INTERVAL_SECONDS
         self.buffer_size_seconds = DEFAULT_BUFFER_SIZE_SECONDS
 
-        # Filter coefficients
-        self.bandpass_filter_coefficients = BANDPASS_FILTER_COEFFICIENTS
+        
 
         self.phase_tolerance = DEFAULT_PHASE_TOLERANCE
         
