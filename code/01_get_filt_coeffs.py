@@ -31,7 +31,7 @@ subject_dir.mkdir(parents=True, exist_ok=True)
 
 # save new paths into settings.json for use in MATLAB
 settings["coeffs_path"] = str(coeffs_path)
-with open("settings.json", "w") as f:
+with open("code/settings.json", "w") as f:
     dump(settings, f, indent=4)
 
 # %%
