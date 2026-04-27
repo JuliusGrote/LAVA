@@ -1,8 +1,5 @@
-if ~exist('sub_id','var') || isempty(sub_id), sub_id = 'sub-001'; end
-if ~exist('data_load','var') || isempty(data_load), data_load = '..\data\sub-001\2025-12-02T162507\'; end
-if ~exist('data_save','var') || isempty(data_save), data_save = '..\data\'; end
-if ~exist('sess_id','var') || isempty(sess_id), sess_id = 3; end
-addpath(genpath('..\toolboxes\'));
+cd(root);
+addpath(genpath('toolboxes'));
 
 % load data
 subject_data = module_read_neurone(...
