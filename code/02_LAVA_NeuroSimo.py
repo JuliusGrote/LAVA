@@ -32,7 +32,9 @@ REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again
 REFERENCE_WEIGHT = 0.25 
 
 # Phase estimation constants
-PHASES_CSV_PATH = 'data/phase_schedule.csv'  # Path to CSV file with phase targets
+print(os.getcwd())
+GIT_PATH = '/app/projects/LAVA_Github'  # Path to the Git repository for filter coefficient updates
+PHASES_CSV_PATH = f'{GIT_PATH}/data/phase_schedule.csv'  # Path to CSV file with phase targets
 DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases (pi/40)
 
 # Phastimate algorithm parameters (Zrenner et al. 2020)
@@ -72,12 +74,14 @@ class Decider:
             sampling_frequency: Sampling frequency in Hz
         """
 
-        self.subject_id = subject_id
+        self.subject_id = f"sub-{subject_id[-3:]}"
 
-        mat_data = loadmat(f'data/{self.subject_id}_bpfilter.mat')
+        results = subprocess.run(['git', 'pull'], cwd=GIT_PATH, capture_output=True, text=True)
+        print(results.stdout)
+        print(results.stderr) if results.returncode != 0 else print("Git pull successful")
 
+        mat_data = loadmat(f'{GIT_PATH}/data/bpfilter_{self.subject_id}.mat')
         self.bandpass_filter_coefficients = np.array(mat_data['coefficients'].flatten()) # correct, matches BOSSDevice
-
         self.sampling_frequency = sampling_frequency
 
         # Phastimate algorithm parameters
