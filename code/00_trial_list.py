@@ -1,5 +1,6 @@
 import random
 import numpy as np
+from json import load
 
 random.seed(42)
 
@@ -7,7 +8,7 @@ n_trials = 600
 
 phase_conditions = [0, np.pi, np.nan]
 
-data_save = "C:/Users/Julius/Meine Ablage/Studium/GTC/LabRotations/ZiemannLab/LAVA/data/"
+data_save = load(open("settings.json", "r"))["data_save"]
 
 # A multiplier of 2 means each block has 6 trials (2 zero, 2 trough, 2 random).
 multiplier = 2 
