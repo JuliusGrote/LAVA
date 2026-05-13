@@ -27,14 +27,14 @@ from spectrum import aryule
 
 
 # EEG channel indices for C3 referencing matches BOSSDevice
-C3_CHANNEL_INDEX = 4 # add 1 to convert to MATLAB (1-based)
+C3_CHANNEL_INDEX = 31 # add 1 to convert to MATLAB (1-based)
 REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again 0-based
 REFERENCE_WEIGHT = 0.25 
 
 # Phase estimation constants
 print(os.getcwd())
-GIT_PATH = '/app/projects/LAVA_Github'  # Path to the Git repository for filter coefficient updates
-PHASES_CSV_PATH = f'{GIT_PATH}/data/phase_schedule.csv'  # Path to CSV file with phase targets
+ # Path to the Git repository for filter coefficient updates
+PHASES_CSV_PATH = f'../LAVA_Github/data/phase_schedule.csv'  # Path to CSV file with phase targets
 DEFAULT_PHASE_TOLERANCE = np.pi / 40  # Single tolerance value for all phases (pi/40)
 
 # Phastimate algorithm parameters (Zrenner et al. 2020)
@@ -76,11 +76,11 @@ class Decider:
 
         self.subject_id = f"sub-{subject_id[-3:]}"
 
-        results = subprocess.run(['git', 'pull'], cwd=GIT_PATH, capture_output=True, text=True)
+        results = subprocess.run('git pull', cwd='../LAVA_Github', shell=True, capture_output=True, text=True)
         print(results.stdout)
         print(results.stderr) if results.returncode != 0 else print("Git pull successful")
 
-        mat_data = loadmat(f'{GIT_PATH}/data/bpfilter_{self.subject_id}.mat')
+        mat_data = loadmat(f'../LAVA_Github/data/bpfilter_{self.subject_id}.mat')
         self.bandpass_filter_coefficients = np.array(mat_data['coefficients'].flatten()) # correct, matches BOSSDevice
         self.sampling_frequency = sampling_frequency
 
@@ -204,7 +204,7 @@ class Decider:
         if self.first_call:
         
             # send UDP trigger
-            udp_host = os.environ.get('UDP_TRIGGER_HOST', '192.168.2.27')
+            udp_host = os.environ.get('UDP_TRIGGER_HOST', '192.168.3.167')
             udp_port = int(os.environ.get('UDP_TRIGGER_PORT', '5555'))
             udp_msg = os.environ.get('UDP_TRIGGER_MESSAGE', 'phastimate_trigger')
             try:
