@@ -1,6 +1,12 @@
 import random
 import numpy as np
 from json import load
+import os
+
+# set pwd to script directory to ensure relative paths work correctly
+script_dir = os.path.dirname(os.path.abspath(__file__))
+os.chdir(script_dir)
+
 
 random.seed(42)
 
@@ -27,6 +33,6 @@ for _ in range(num_blocks):
 
 experiment_sequence = [random.uniform(0, 2 * np.pi) if np.isnan(phase) else phase for phase in experiment_sequence]
 
-with open(f"{data_save}phase_schedule.csv", "w") as f:
+with open(f"{data_save}/phase_schedule.csv", "w") as f:
     for values in experiment_sequence:
         f.write(f"{values},\n")
