@@ -27,7 +27,7 @@ from spectrum import aryule
 
 
 # EEG channel indices for C3 referencing matches BOSSDevice
-C3_CHANNEL_INDEX = 31 # add 1 to convert to MATLAB (1-based)
+C3_CHANNEL_INDEX = 4 # add 1 to convert to MATLAB (1-based)
 REFERENCE_CHANNEL_INDICES = [20, 22, 24, 26]  # Reference channels for C3, again 0-based
 REFERENCE_WEIGHT = 0.25 
 

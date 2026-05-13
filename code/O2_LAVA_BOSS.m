@@ -20,7 +20,7 @@ bd.num_eeg_channels = 64;
 
 % Left-hemisphere Hjorth-like spatial filter (C3 cluster)
 spf = zeros(64,1);
-spf([32 21 23 25 27]) = [1 -0.25 -0.25 -0.25 -0.25];
+spf([5 21 23 25 27]) = [1 -0.25 -0.25 -0.25 -0.25];
 bd.spatial_filter_weights = spf;
 coeffs = load([settings.data_save '\bpfilter_' settings.sub_id '.mat'], 'coefficients').coefficients;
 bd.alpha.bpf_fir_coeffs = coeffs;
