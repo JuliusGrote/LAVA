@@ -1,6 +1,8 @@
 cd(root);
 addpath(genpath('toolboxes'));
 
+eeglab('nogui');
+
 % load data
 subject_data = module_read_neurone(...
         fullfile(data_load, sub_id), ...

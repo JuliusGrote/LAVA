@@ -1,6 +1,6 @@
 # %%
 # packages and paths
-import subprocess
+import subprocess, os
 from json import dump, load
 from pathlib import Path
 
@@ -10,7 +10,12 @@ from scipy.io import savemat
 from scipy.signal import firwin
 from spectrum_analysis import compute_peak_bands, parameterize_spectrum
 
-with open("code\\settings.json", "r") as f:
+# change pwd to script directory to ensure relative paths work correctly
+pwd = Path(__file__).parent
+os.chdir(pwd)
+
+
+with open("settings.json", "r") as f:
     settings = load(f)
 
 sub_id = settings["sub_id"]
@@ -36,7 +41,7 @@ subject_dir.mkdir(parents=True, exist_ok=True)
 
 # save new paths into settings.json for use in MATLAB
 settings["coeffs_path"] = str(coeffs_path)
-with open("code/settings.json", "w") as f:
+with open("settings.json", "w") as f:
     dump(settings, f, indent=4)
 
 # %%
@@ -135,7 +140,7 @@ coefficients = firwin(numtaps, [lower, upper], fs=fs, pass_zero="bandpass")
 savemat(str(coeffs_path), {"coefficients": coefficients})
 
 # run git push to sync with remote repository
-subprocess.run(["git", "add", "*"], cwd=str(repo_root))
+subprocess.run(["git", "add", "."], cwd=str(repo_root))
 subprocess.run(
     ["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"],
     cwd=str(repo_root),
