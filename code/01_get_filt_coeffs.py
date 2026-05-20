@@ -107,17 +107,18 @@ psd = spectrum.get_data()
 periodic_params, aperiodic_params = parameterize_spectrum(
     [freqs, psd[0, :]], save_fig=repo_root / "figures" / f"{sub_id}_psd.png", fmax=60
 )
-# compute peak bands
-peak_index = np.argmax(
-    [
-        periodic_params[index][1]
-        for index, param in enumerate(periodic_params)
-        if param[0] < 12 and param[0] > 8
-    ]
-)
 
-peak = periodic_params[peak_index][0]
-print(f"peak: {peak}")
+# compute peak bands
+# peak_index = np.argmax(
+#     [
+#         periodic_params[index][1]
+#         for index, param in enumerate(periodic_params)
+#         if param[0] < 12 and param[0] > 8
+#     ]
+# )
+
+# peak = periodic_params[peak_index][0]
+# print(f"peak: {peak}")
 # lower, upper = peak - 1, peak + 1
 upper, lower, _ = compute_peak_bands(periodic_params, [[8, 12, 0]])
 

@@ -1,13 +1,14 @@
 %% housekeeping
 delete(instrfindall)
 clc;clear;
-
+bd = bossdevice;
 % Load settings from JSON file
 settings = jsondecode(fileread('C:\Users\Eric James McDermott\Desktop\LAVA_GitHub\code\settings.json'));
 
 %% Initialize BOSS device and spatial filter
-bd = bossdevice;
-pause(1);
+
+% Simulink.sdi.view FOR DEBUGGING SIMULINK
+ 
 % Stop application if it was alrady running
 if bd.isRunning
     bd.stop;
@@ -28,7 +29,7 @@ bd.alpha.bpf_fir_coeffs = coeffs;
 bd.alpha.offset_samples = 2;    % 2 seems appropriate
 bd.alpha.amplitude_min(1) = 0;
 bd.alpha.amplitude_max(1) = 1e6;
-bd.alpha.phase_plusminus(1) = pi/40;
+bd.alpha.phase_plusminus(1) = pi/40; %pi/6
 
 % ignore other bands (assumes API supports these calls)
 bd.theta.ignore;
