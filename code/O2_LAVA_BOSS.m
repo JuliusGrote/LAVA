@@ -53,7 +53,7 @@ fprintf('Entering trigger loop (fixed ITI = %.1f s). Press Ctrl-C to stop.\n', b
 bd.triggers_remaining = 0;
 
 % waiting for Neurosimo to sent a udp package to trigger BOSS loop
-%matlab_udp_listener(5555);
+matlab_udp_listener(5555);
 
 % Configure phase trials
 bd.triggers_remaining = n_trials; % reset trigger count
