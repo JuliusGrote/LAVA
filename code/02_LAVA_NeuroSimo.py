@@ -50,8 +50,12 @@ DEFAULT_DOWNSAMPLE_RATIO = 10  # Matches BOSSDevice: 5000Hz -> 500Hz
 # Processing timing constants
 DEFAULT_PROCESSING_INTERVAL_SECONDS = 0.05
 
-DEFAULT_BUFFER_SIZE_SECONDS = 0.719  # ?? 
-TRIGGER_COOLDOWN_SECONDS = 2.0  # Minimum time between triggers in s - correct (set here, can be adjusted for BOSS)
+DEFAULT_BUFFER_SIZE_SECONDS = 0.719  # ??
+
+# NOTE: There used to be TRIGGER_COOLDOWN_SECONDS here, which was set to 2.0 s. Nowadays, the equivalent variable is
+#   set in the protocol (LAVA.yaml), and it is called minimum_trial_interval. It is currently set to 2.0 s, but can
+#   be adjusted as needed.
+
 MINIMUM_TRIGGER_DELAY_SECONDS = 0.005  # Minimum 5ms delay required for system to process and send trigger
 FIRST_ROUND_WAIT_SECONDS = 0.5  # Wait time before first UDP trigger to ensure system is ready
 
@@ -119,10 +123,6 @@ class Decider:
         self.warm_up_start_time = None
         self.warm_up_duration = FIRST_ROUND_WAIT_SECONDS
 
-                
-        # Trigger cooldown tracking (2 seconds minimum between triggers)
-        self.trigger_cooldown_seconds = TRIGGER_COOLDOWN_SECONDS
-
         # Diagnostics for debugging trigger skips
         self.last_phase_error = None
         
@@ -155,9 +155,7 @@ class Decider:
             'warm_up_rounds': 0,  # Number of warm-up rounds to perform (0 to disable)
 
             # Periodic processing
-            'periodic_processing_enabled': True,
             'periodic_processing_interval': self.processing_interval_seconds,
-            'pulse_lockout_duration': self.trigger_cooldown_seconds,
         }
 
 
@@ -190,7 +188,7 @@ class Decider:
         """
         Process the EEG data to estimate phase and schedule a trigger.
         """
-        
+        print("decider process_periodic called with pulse_count:", pulse_count)
         # Check if warm-up period has elapsed
         if self.warm_up_start_time is not None:
             elapsed_time = time.time() - self.warm_up_start_time
@@ -312,7 +310,7 @@ class Decider:
             self.ar_model_order, 
             self.hilbert_window_size
         )
-        
+
         return estimated_phases
 
     def _find_optimal_trigger_timing(self, estimated_phases: np.ndarray, reference_time: float) -> Optional[Dict[str, Any]]:
@@ -339,10 +337,14 @@ class Decider:
         # Calculate phase differences from target
         phase_differences = np.angle(np.exp(1j * (future_phase_estimates - self.target_phase_radians)))
 
+        print(f"DEBUG: Future phase differences (radians): {phase_differences}")
         # Find the sample with minimum phase difference
         optimal_sample_index = np.argmin(np.abs(phase_differences))
+
         min_phase_difference = phase_differences[optimal_sample_index]
         phase_error = np.abs(min_phase_difference)
+
+        print(f"DEBUG: Optimal sample index: {optimal_sample_index}, Phase error: {phase_error:.4f} radians")
         self.last_phase_error = phase_error
 
         # Check if phase difference is within tolerance
