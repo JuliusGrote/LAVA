@@ -61,7 +61,7 @@ bd.triggers_remaining = n_trials; % reset trigger count
 temp = armNextTrigger(bd, phase_targets, n_trials);
 
 while(bd.triggers_remaining > 0)
-    if (bd.triggers_remaining < temp) % additional safeguard
+    if (bd.triggers_remaining < temp) && bd.triggers_remaining > 0 % additional safeguard
         bd.disarm;
         fprintf('Phase target found. Triggered. \n')
         temp = armNextTrigger(bd, phase_targets, n_trials);
