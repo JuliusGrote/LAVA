@@ -85,7 +85,7 @@ def parameterize_spectrum(data, fmin=1, fmax=120, max_peaks=6, peak_width_limits
     return periodic_peaks, aperiodic_params
         
 
-def compute_peak_bands(peaks, bands) -> tuple[list, list]:
+def compute_peak_bands(peaks, bands) -> list[list]:
     """Get the peaks in a specific frequency band.
 
     Parameters
