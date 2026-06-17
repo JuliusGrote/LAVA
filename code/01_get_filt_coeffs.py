@@ -1,14 +1,14 @@
 # %%
 # packages and paths
-import subprocess, os
+import os
+import subprocess
 from json import dump, load
 from pathlib import Path
 
 import mne
-import numpy as np
 from scipy.io import savemat
 from scipy.signal import firwin
-from spectrum_analysis import compute_peak_bands, parameterize_spectrum
+from spectrum_analysis import parameterize_spectrum
 
 # change pwd to script directory to ensure relative paths work correctly
 pwd = Path(__file__).parent
@@ -83,7 +83,8 @@ pre_rs = mne.io.read_raw_eeglab(str(rs_file), preload=True)
 
 pre_rs.crop(tmin=30, tmax=630)  # take only the first 10 minutes of data
 center = "C3"
-neighbors = ["FC3", "CP3", "C1", "C5"]
+# neighbors = ["FC3", "CP3", "C1", "C5"]
+neighbors = ["FC1", "CP1", "FC5", "CP5"]
 
 # get the data
 c3 = pre_rs.get_data(picks=center)
@@ -110,7 +111,9 @@ periodic_params, aperiodic_params = parameterize_spectrum(
 
 # compute peak bands with +/-1 fixed bandwidth
 band_peaks = [param for param in periodic_params if param[0] < 12 and param[0] > 8]
-peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[0][0] # get preak freq with highest power
+peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[0][
+    0
+]  # get preak freq with highest power
 lower, upper = peak - 1, peak + 1
 
 # use for fitted width instead of fixed 1 Hz bandwidth
