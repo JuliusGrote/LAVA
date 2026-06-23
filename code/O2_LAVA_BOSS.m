@@ -7,7 +7,7 @@ settings = jsondecode(fileread('C:\Users\Eric James McDermott\Desktop\LAVA_GitHu
 
 %% Initialize BOSS device and spatial filter
 
-Simulink.sdi.view FOR DEBUGGING SIMULINK
+%Simulink.sdi.view FOR DEBUGGING SIMULINK
  
 % Stop application if it was alrady running
 if bd.isRunning

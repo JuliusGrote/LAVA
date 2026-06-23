@@ -81,7 +81,7 @@ if not rs_file.exists():
 # c3 hjorth filter
 pre_rs = mne.io.read_raw_eeglab(str(rs_file), preload=True)
 
-pre_rs.crop(tmin=30, tmax=630)  # take only the first 10 minutes of data
+pre_rs.crop(tmin=30, tmax=630)  # take the first 10 minutes of data
 center = "C3"
 # neighbors = ["FC3", "CP3", "C1", "C5"]
 neighbors = ["FC1", "CP1", "FC5", "CP5"]
