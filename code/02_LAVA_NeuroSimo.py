@@ -67,7 +67,7 @@ class Decider:
     of EEG signals and schedules triggers based on target phase detection.
     """
     
-    def __init__(self, subject_id: str, num_eeg_channels: int, num_emg_channels: int, sampling_frequency: int):
+    def __init__(self, subject_id: int, num_eeg_channels: int, num_emg_channels: int, sampling_frequency: int):
         """
         Initialize the Decider with parameters and filter design.
         
@@ -77,8 +77,7 @@ class Decider:
             num_emg_channels: Number of EMG channels (unused but kept for interface compatibility)
             sampling_frequency: Sampling frequency in Hz
         """
-
-        self.subject_id = f"sub-{subject_id[-3:]}"
+        self.subject_id = f"sub-{subject_id:03d}"        
 
         results = subprocess.run('git pull', cwd='../LAVA_Github', shell=True, capture_output=True, text=True)
         print(results.stdout)
@@ -202,7 +201,7 @@ class Decider:
         if self.first_call:
         
             # send UDP trigger
-            udp_host = os.environ.get('UDP_TRIGGER_HOST', '192.168.3.167')
+            udp_host = os.environ.get('UDP_TRIGGER_HOST', '192.168.2.136') # adjust if necessary, e.g. if control PC got assigned a new IPv4 adress.
             udp_port = int(os.environ.get('UDP_TRIGGER_PORT', '5555'))
             udp_msg = os.environ.get('UDP_TRIGGER_MESSAGE', 'phastimate_trigger')
             try:
