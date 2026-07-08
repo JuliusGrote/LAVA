@@ -36,7 +36,7 @@ subject_dir = data_save / sub_id
 rs_file = subject_dir / f"{sub_id}.set"
 coeffs_path = data_save / f"bpfilter_{sub_id}.mat"
 dec = 10
-print(f"root: {repo_root}")
+
 subject_dir.mkdir(parents=True, exist_ok=True)
 
 # save new paths into settings.json for use in MATLAB
@@ -111,10 +111,18 @@ periodic_params, aperiodic_params = parameterize_spectrum(
 
 # compute peak bands with +/-1 fixed bandwidth
 band_peaks = [param for param in periodic_params if param[0] < 12 and param[0] > 8]
-peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[0][
-    0
-]  # get preak freq with highest power
-lower, upper = peak - 1, peak + 1
+peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[0] # get the peak with the highest power
+peak_f = peak[0]
+lower, upper = peak_f - 1, peak_f + 1
+
+# get snr
+peak_snr = 10*peak[1]
+
+print(f"\nPeak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
+
+# save snr
+with open(data_save / "sub_snr.csv", "a") as f:
+    f.write(f"{sub_id}, Session: {sess_id}, Peak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
 
 # use for fitted width instead of fixed 1 Hz bandwidth
 # upper, lower = [x[0] for x in compute_peak_bands(periodic_params, [[8, 12, 0]])[:2]]
