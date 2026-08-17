@@ -120,6 +120,8 @@ peak_snr = 10*peak[1]
 
 print(f"\nPeak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
 
+
+
 # save snr
 with open(data_save / "sub_snr.csv", "a") as f:
     f.write(f"{sub_id}, Session: {sess_id}, Peak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
