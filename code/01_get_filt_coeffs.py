@@ -102,6 +102,21 @@ raw_c3_hjorth.resample(pre_rs.info["sfreq"] / dec)
 
 spectrum = raw_c3_hjorth.compute_psd(fmin=1, fmax=60)
 
+# Julianas mod start
+# sfreq = raw_c3_hjorth.info["sfreq"]
+# n_fft = int(4 * sfreq)  # 4 s windows
+# n_overlap = n_fft // 2  # 50% overlap
+
+# spectrum = raw_c3_hjorth.compute_psd(
+#     method="welch",
+#     fmin=1,
+#     fmax=60,
+#     n_fft=n_fft,
+#     n_overlap=n_overlap,
+#     n_per_seg=n_fft,
+# )
+# Julianas mod end
+
 freqs = spectrum.freqs
 psd = spectrum.get_data()
 
@@ -111,20 +126,23 @@ periodic_params, aperiodic_params = parameterize_spectrum(
 
 # compute peak bands with +/-1 fixed bandwidth
 band_peaks = [param for param in periodic_params if param[0] < 12 and param[0] > 8]
-peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[0] # get the peak with the highest power
+peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[
+    0
+]  # get the peak with the highest power
 peak_f = peak[0]
 lower, upper = peak_f - 1, peak_f + 1
 
 # get snr
-peak_snr = 10*peak[1]
+peak_snr = 10 * peak[1]
 
 print(f"\nPeak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
 
 
-
 # save snr
 with open(data_save / "sub_snr.csv", "a") as f:
-    f.write(f"{sub_id}, Session: {sess_id}, Peak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
+    f.write(
+        f"{sub_id}, Session: {sess_id}, Peak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n"
+    )
 
 # use for fitted width instead of fixed 1 Hz bandwidth
 # upper, lower = [x[0] for x in compute_peak_bands(periodic_params, [[8, 12, 0]])[:2]]
