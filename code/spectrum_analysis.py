@@ -1,10 +1,11 @@
-from specparam import SpectralModel, SpectralGroupModel
-from mne.io import Raw, RawArray
-from mne import Epochs, EpochsArray
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from mne import Epochs, EpochsArray
+from mne.io import Raw, RawArray
+from specparam import SpectralGroupModel, SpectralModel
 
-def parameterize_spectrum(data, fmin=1, fmax=120, max_peaks=6, peak_width_limits=[1, 10], min_peak_height=0.2, ap_mode ='fixed', freq_range=[1, 120], save_fig=None, **kwargs) -> tuple[list, list]:
+
+def parameterize_spectrum(data, fmin=1, fmax=120, max_peaks=8, peak_width_limits=[1, 10], min_peak_height=0.2, ap_mode ='fixed', freq_range=[1, 120], save_fig=None, **kwargs) -> tuple[list, list]:
     """Parameterize the spectrum of a MEG dataset using SpecParam.
 
     Parameters
@@ -46,7 +47,9 @@ def parameterize_spectrum(data, fmin=1, fmax=120, max_peaks=6, peak_width_limits
         freqs = data[0]
         spectrum = data[1]   
 
-    else: raise ValueError("data must be either an mne.io.Raw object or a numpy array representing the spectrum.")
+    else:
+        raise ValueError("data must be either an mne.io.Raw object or a numpy array representing the spectrum.")
+
 
     if spectrum.ndim == 1:
         spec_model = SpectralModel(max_n_peaks=max_peaks, 

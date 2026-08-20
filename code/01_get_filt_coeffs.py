@@ -6,8 +6,10 @@ from json import dump, load
 from pathlib import Path
 
 import mne
+import numpy as np
 from scipy.io import savemat
 from scipy.signal import firwin
+
 from spectrum_analysis import parameterize_spectrum
 
 # change pwd to script directory to ensure relative paths work correctly
@@ -100,43 +102,47 @@ raw_c3_hjorth = mne.io.RawArray(c3_hjorth, info).filter(1, 60, fir_design="firwi
 
 raw_c3_hjorth.resample(pre_rs.info["sfreq"] / dec)
 
-spectrum = raw_c3_hjorth.compute_psd(fmin=1, fmax=60)
-
-# Julianas mod start
-# sfreq = raw_c3_hjorth.info["sfreq"]
-# n_fft = int(4 * sfreq)  # 4 s windows
-# n_overlap = n_fft // 2  # 50% overlap
-
-# spectrum = raw_c3_hjorth.compute_psd(
-#     method="welch",
-#     fmin=1,
-#     fmax=60,
-#     n_fft=n_fft,
-#     n_overlap=n_overlap,
-#     n_per_seg=n_fft,
-# )
-# Julianas mod end
+n_per_seg = int(4 * raw_c3_hjorth.info["sfreq"])  # 4 s windows
+n_fft = 4096
+spectrum = raw_c3_hjorth.compute_psd(
+    fmin=1, fmax=60, n_fft=n_fft, n_overlap=n_per_seg // 2, n_per_seg=n_per_seg
+)
 
 freqs = spectrum.freqs
 psd = spectrum.get_data()
+print(f"PSD shape: {psd.shape}")
 
 periodic_params, aperiodic_params = parameterize_spectrum(
-    [freqs, psd[0, :]], save_fig=repo_root / "figures" / f"{sub_id}_psd.png", fmax=120
+    [freqs, psd[0, :]],
+    save_fig=repo_root / "figures" / f"{sub_id}_psd.png",
+    freq_range=[1, 60],
 )
 
+# get snr peak
+lower_alpha, upper_alpha = 8, 13
+peak_snr = max(psd[0, (freqs >= lower_alpha) & (freqs <= upper_alpha)])
+peak_idx = np.where(psd[0, :] == peak_snr)[0][0]
+peak_power_log = np.log10(peak_snr)
+aperiodic_background_log = aperiodic_params[0] - aperiodic_params[1] * np.log10(
+    freqs[peak_idx]
+)
+peak_snr = 10 * (peak_power_log - aperiodic_background_log)
+print("\n"+100 * "-")
+print(f"Peak SNR: {peak_snr:.2f} dB at {freqs[peak_idx]:.2f} Hz")
+
 # compute peak bands with +/-1 fixed bandwidth
-band_peaks = [param for param in periodic_params if param[0] < 12 and param[0] > 8]
-peak = sorted(band_peaks, key=lambda x: x[1], reverse=True)[
-    0
-]  # get the peak with the highest power
-peak_f = peak[0]
+band_peaks = [
+    param
+    for param in periodic_params
+    if param[0] < upper_alpha and param[0] > lower_alpha
+]
+if len(band_peaks) > 0:
+    peak = max(band_peaks, key=lambda x: x[1])  # get the peak with the highest power
+    peak_f = peak[0]
+else:
+    print("No peaks found in the alpha band. Using the peak SNR frequency instead.")
+    peak_f = freqs[peak_idx]
 lower, upper = peak_f - 1, peak_f + 1
-
-# get snr
-peak_snr = 10 * peak[1]
-
-print(f"\nPeak frequency: {peak_f} Hz, SNR: {peak_snr:.2f} dB\n")
-
 
 # save snr
 with open(data_save / "sub_snr.csv", "a") as f:
@@ -156,16 +162,16 @@ numtaps = (
 print(
     f"Designing FIR filter with fs={fs}, numtaps={numtaps}, lower={lower}, upper={upper}"
 )
-
+print(100 * "-"+"\n")
 coefficients = firwin(numtaps, [lower, upper], fs=fs, pass_zero="bandpass")
 
 # save coefficients to .mat file
 savemat(str(coeffs_path), {"coefficients": coefficients})
 
-# run git push to sync with remote repository
-subprocess.run(["git", "add", "."], cwd=str(repo_root))
-subprocess.run(
-    ["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"],
-    cwd=str(repo_root),
-)
-subprocess.run(["git", "push"], cwd=str(repo_root))
+# # run git push to sync with remote repository
+# subprocess.run(["git", "add", "."], cwd=str(repo_root))
+# subprocess.run(
+#     ["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"],
+#     cwd=str(repo_root),
+# )
+# subprocess.run(["git", "push"], cwd=str(repo_root))
