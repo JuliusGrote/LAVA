@@ -110,7 +110,6 @@ spectrum = raw_c3_hjorth.compute_psd(
 
 freqs = spectrum.freqs
 psd = spectrum.get_data()
-print(f"PSD shape: {psd.shape}")
 
 periodic_params, aperiodic_params = parameterize_spectrum(
     [freqs, psd[0, :]],
@@ -142,6 +141,7 @@ if len(band_peaks) > 0:
 else:
     print("No peaks found in the alpha band. Using the peak SNR frequency instead.")
     peak_f = freqs[peak_idx]
+print(f"Peak frequency: {peak_f:.2f} Hz")
 lower, upper = peak_f - 1, peak_f + 1
 
 # save snr
