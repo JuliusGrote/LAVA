@@ -126,7 +126,7 @@ aperiodic_background_log = aperiodic_params[0] - aperiodic_params[1] * np.log10(
     freqs[peak_idx]
 )
 peak_snr = 10 * (peak_power_log - aperiodic_background_log)
-print("\n"+100 * "-")
+print("\n" + 100 * "-")
 print(f"Peak SNR: {peak_snr:.2f} dB at {freqs[peak_idx]:.2f} Hz")
 
 # compute peak bands with +/-1 fixed bandwidth
@@ -162,16 +162,16 @@ numtaps = (
 print(
     f"Designing FIR filter with fs={fs}, numtaps={numtaps}, lower={lower}, upper={upper}"
 )
-print(100 * "-"+"\n")
+print(100 * "-" + "\n")
 coefficients = firwin(numtaps, [lower, upper], fs=fs, pass_zero="bandpass")
 
 # save coefficients to .mat file
 savemat(str(coeffs_path), {"coefficients": coefficients})
 
 # # run git push to sync with remote repository
-# subprocess.run(["git", "add", "."], cwd=str(repo_root))
-# subprocess.run(
-#     ["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"],
-#     cwd=str(repo_root),
-# )
-# subprocess.run(["git", "push"], cwd=str(repo_root))
+subprocess.run(["git", "add", "."], cwd=str(repo_root))
+subprocess.run(
+    ["git", "commit", "-m", f"Add FIR filter coefficients for {sub_id}"],
+    cwd=str(repo_root),
+)
+subprocess.run(["git", "push"], cwd=str(repo_root))
